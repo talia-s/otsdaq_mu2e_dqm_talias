@@ -27,6 +27,17 @@ canvas
   DTCInterface
 )
 
+simple_plugin(TriggerRates "module"
+        artdaq-core_Utilities
+	otsdaq-dqm_Overlays
+	NetworkUtilities
+	artdaq-core_Data
+	artdaq-core_Core
+    ${CETLIB_EXCEPT}
+
+)
+
+
 # simple_plugin(WireChamberDQM "module"
 # 	otsdaq-dqm_Overlays
 #         ECLWriterCore
