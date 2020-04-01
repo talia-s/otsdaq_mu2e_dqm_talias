@@ -15,6 +15,7 @@ canvas
   art_Framework_Core
   art_Framework_IO_Sources
   art_Framework_Principal
+  art_Framework_Services
   art_Persistency_Provenance
   MF_MessageLogger
   ${ROOT_CINTEX}
@@ -25,15 +26,26 @@ canvas
   cetlib
   cetlib_except
   DTCInterface
-)
+) #add libs here if want more mu2e stuff $OFFLINE_LIBS - > get name: libNAME.so
 
 simple_plugin(TriggerRates "module"
         artdaq-core_Utilities
-	otsdaq-dqm_Overlays
 	NetworkUtilities
 	artdaq-core_Data
 	artdaq-core_Core
+  ${ROOT_CORE}
+  ${ROOT_GPAD}
+ 	${ROOT_HIST}
+ 	${ROOT_GUI}
+ 	${ROOT_RIO}
+   ${ROOT_NET}
     ${CETLIB_EXCEPT}
+art_Framework_Services_Registry  
+art_root_io
+  art_root_io_tfile_support
+  art_root_io_TFileService_service
+  $ENV{OFFLINE_LIB}/libmu2e_ConditionsService.so
+  $ENV{OFFLINE_LIB}/libmu2e_Mu2eInterfaces.so
 
 )
 
