@@ -1,6 +1,6 @@
 //Author: S Middleton
 //Date: 2020
-//Purpose: prototype Analyzer fir DQM trigger rates. Based on Offline module Trigger/srs/ReadTriggerInfo. Much of the code was copied over from that module.
+//Purpose: prototype Analyzer fir DQM trigger rates. Based on Offline module Trigger/srs/ReadTriggerInfo. Much of the code was copied over from that module but has been adapted for Online vicualization.
 
 //Art:
 #include "art/Framework/Core/EDAnalyzer.h"
@@ -9,6 +9,13 @@
 #include "art/Framework/Principal/Handle.h"
 #include "art/Framework/Principal/Run.h"
 #include "canvas/Utilities/InputTag.h"
+#include "art_root_io/TFileService.h"
+#include "art_root_io/TFileDirectory.h"
+#include "canvas/Persistency/Common/TriggerResults.h"
+#include "art/Framework/Services/System/TriggerNamesService.h"
+#include "cetlib_except/exception.h"
+#include "fhiclcpp/ParameterSet.h"
+#include "fhiclcpp/ParameterSetRegistry.h"
 
 #include "artdaq-core/Data/ContainerFragment.hh"
 #include "artdaq-core/Data/Fragment.hh"
@@ -29,10 +36,43 @@
 #include <TProfile.h>
 
 //Offline:
-#include "ConditionsService/inc/AcceleratorParams.hh"
-#include "ConditionsService/inc/ConditionsHandle.hh"
+#include <ConditionsService/inc/AcceleratorParams.hh>
+#include <ConditionsService/inc/ConditionsHandle.hh>
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wtype-limits" 
+#pragma GCC diagnostic ignored "-Wpedantic"
+#include <BFieldGeom/inc/BFieldManager.hh>
+#include <TrackerGeom/inc/Tracker.hh>
+#pragma GCC diagnostic pop
 
+#include <GeometryService/inc/GeomHandle.hh>
+#include <GeometryService/inc/DetectorSystem.hh>
+#include <RecoDataProducts/inc/CaloCluster.hh>
+#include <RecoDataProducts/inc/CaloTrigSeed.hh>
+#include <RecoDataProducts/inc/HelixSeed.hh>
+#include <RecoDataProducts/inc/KalSeed.hh>
+#include <RecoDataProducts/inc/TriggerInfo.hh>
+#include <RecoDataProducts/inc/ComboHit.hh>
+#include <RecoDataProducts/inc/StrawDigi.hh>
+#include <RecoDataProducts/inc/StrawDigiCollection.hh>
+#include <RecoDataProducts/inc/CaloDigi.hh>
+#include <RecoDataProducts/inc/CaloDigiCollection.hh>
+#include <DataProducts/inc/XYZVec.hh>
 
+#include <MCDataProducts/inc/SimParticle.hh>
+#include <MCDataProducts/inc/SimParticleCollection.hh>
+#include <MCDataProducts/inc/StrawDigiMC.hh>
+#include <MCDataProducts/inc/StrawDigiMCCollection.hh>
+#include <MCDataProducts/inc/StepPointMC.hh>
+#include <MCDataProducts/inc/StepPointMCCollection.hh>
+#include <MCDataProducts/inc/ProtonBunchIntensity.hh>
+
+//#include <GlobalConstantsService/inc/GlobalConstantsHandle.hh">
+#include <GlobalConstantsService/inc/ParticleDataTable.hh>
+
+//Utilities
+#include <Mu2eUtilities/inc/TriggerResultsNavigator.hh>
+#include <Mu2eUtilities/inc/HelixTool.hh>
 //C++:
 #include <algorithm>
 #include <functional>
@@ -50,15 +90,41 @@ namespace ots
     {
       public:
 	    explicit TriggerRates(fhicl::ParameterSet const& pset);
-	    virtual ~TriggerRates() = default;
+	    virtual ~TriggerRates();
 
 	    void analyze(art::Event const& e) override;
 	    void beginRun(art::Run const&) override;
         void beginJob() override;
-      private:
-	   
+        void endJob() override;
+	    void endSubRun(const art::SubRun& sr);
         enum {
-            kNTrigInfo     = 40
+          kNTrigInfo     = 40,
+          kNTrackTrig    = 20,
+          kNTrackTrigVar = 30,
+          kNHelixTrig    = 10,
+          kNHelixTrigVar = 100,
+          kNCaloCalib    = 5,
+          kNCaloCalibVar = 5,
+          kNCaloOnly     = 5,
+          kNCaloOnlyVar  = 5,
+          kNOcc          = 40,
+          kNOccVar       = 10
+        };
+
+        struct MCInfo {
+          double  pMC;  
+          double  pTMC;  
+          double  pZMC;  
+          double  dpMC;  
+          double  dpTMC; 
+          double  dpZMC; 
+          double  pdg;   
+          double  origZ; 
+          double  origR; 
+          double  pdgM;  
+          double  lambda;
+          double  d0;
+          double  p;
         };
 
         struct  summaryInfoHist_  {
@@ -82,16 +148,90 @@ namespace ots
             trigInfo_ ():counts(0), exclusive_counts(0){}
         };
 
-        std::vector<trigInfo_>    _trigAll;	     
-        std::vector<trigInfo_>    _trigFinal;    
-        std::vector<trigInfo_>    _trigCaloOnly; 
-        std::vector<trigInfo_>    _trigCaloCalib;
-        std::vector<trigInfo_>    _trigTrack;    
-        std::vector<trigInfo_>    _trigHelix;    
-        std::vector<trigInfo_>    _trigEvtPS;  
-  
-        summaryInfoHist_ sumHist_;
+        struct  trackInfoHist_    {
+          TH1F *_hTrkInfo [kNTrackTrig][kNTrackTrigVar];
 
+          trackInfoHist_ (){
+	          for (int i=0; i<kNTrackTrig; ++i){ 
+	            for (int j=0; j<kNTrackTrigVar; ++j){
+	                _hTrkInfo  [i][j] = NULL;
+	            }
+	          }     
+          }
+        };
+
+        struct  helixInfoHist_    {
+          TH1F *_hHelInfo [kNHelixTrig][kNHelixTrigVar];
+          
+          helixInfoHist_(){
+	        for (int i=0; i<kNHelixTrig; ++i){ 
+	          for (int j=0; j<kNHelixTrigVar; ++j){
+	            _hHelInfo  [i][j] = NULL;
+	          }
+	        }	
+          }
+        };  
+
+        struct  caloTrigSeedHist_ {
+          TH1F *_hCaloOnlyInfo [kNCaloOnly][kNCaloOnlyVar];
+          
+          caloTrigSeedHist_(){
+	        for (int i=0; i<kNCaloOnly; ++i){ 
+	          for (int j=0; j<kNCaloOnlyVar; ++j){
+	            _hCaloOnlyInfo  [i][j] = NULL;
+	          }
+	        }	
+          }
+        };
+    
+        struct  caloCalibrationHist_ {
+          TH1F *_hCaloCalibInfo[kNCaloCalib][kNCaloCalibVar];
+          
+          caloCalibrationHist_ (){
+	        for (int i=0; i<kNCaloCalib; ++i){ 
+	          for (int j=0; j<kNCaloCalibVar; ++j){
+	            _hCaloCalibInfo  [i][j] = NULL;
+	          }
+	        }
+          }
+        };
+    
+        struct  occupancyHist_       {
+          TH1F *_hOccInfo  [kNOcc][kNOccVar];
+          TH2F *_h2DOccInfo[kNOcc][kNOccVar];
+          
+          occupancyHist_ (){
+	        for (int i=0; i<kNOcc; ++i){ 
+	          for (int j=0; j<kNOccVar; ++j){
+	            _hOccInfo    [i][j] = NULL;
+	            _h2DOccInfo  [i][j] = NULL;
+	          }
+	        }
+          }
+        };
+      
+
+        
+        void bookHistograms();
+        void bookTrigInfoHist(art::ServiceHandle<art::TFileService> & Tfs, summaryInfoHist_ &Hist);
+        void bookTrackInfoHist(art::ServiceHandle<art::TFileService> & Tfs, trackInfoHist_ &Hist);
+        void bookHelixInfoHist(art::ServiceHandle<art::TFileService> & Tfs, helixInfoHist_ &Hist);
+        void bookCaloTrigSeedInfoHist(art::ServiceHandle<art::TFileService> & Tfs, caloTrigSeedHist_ &Hist);
+        void bookCaloCalibInfoHist(art::ServiceHandle<art::TFileService> & Tfs, caloCalibrationHist_ &Hist);
+        void bookOccupancyInfoHist(art::ServiceHandle<art::TFileService> & Tfs, occupancyHist_ &Hist);
+
+        void findTrigIndex(std::vector<trigInfo_> &Vec, std::string &ModuleLabel, int &Index);
+        void fillTrackTrigInfo(int TrkTrigIndex, const mu2e::KalSeed* KSeed, trackInfoHist_         &Hist);
+        void fillHelixTrigInfo(int HelTrigIndex, const mu2e::HelixSeed* HSeed, helixInfoHist_ &Hist);
+        void fillHelixTrigInfoAdd(int HelTrigIndex, int MCMotherIndex, const mu2e::HelixSeed* HSeed, helixInfoHist_ &Hist, MCInfo &TMPMCInfo);
+        void fillCaloTrigSeedInfo(int CTrigSeedIndex, const mu2e::CaloTrigSeed* HCl, caloTrigSeedHist_ &Hist);
+        void fillCaloCalibTrigInfo(int ClCalibIndex, const mu2e::CaloCluster* HCl, caloCalibrationHist_ &Hist);
+        void fillOccupancyInfo(int Index, const mu2e::StrawDigiCollection*SDCol, const mu2e::CaloDigiCollection*CDCol, occupancyHist_   &Hist);
+
+        void findCorrelatedEvents(std::vector<string>& VecLabels, double &NCorrelated);
+        void evalTriggerRate();
+        void PlotRate(art::Event const& e);
+    private:
         art::RunNumber_t current_run_;
         std::string outputFileName_;
         art::ServiceHandle<art::TFileService> tfs;
@@ -101,15 +241,43 @@ namespace ots
         size_t _nMaxTrig;    
         int _nTrackTrig;
         int _nCaloTrig;
-        float _nProcess;
-        double  _duty_cycle;
-        void PlotRate(art::Event const& e);
-        
-        void BookHistos();
-        void BookTriggerHistos();
-        void FillHistos();
+        int _nCaloCalibTrig;
+        std::vector<std::string>  _trigPaths;
+        art::InputTag _trigAlgTag;
+        art::InputTag _sdMCTag;
+        art::InputTag _sdTag;
+        art::InputTag _chTag;    
+        art::InputTag _cdTag;
+        art::InputTag _evtWeightTag;
+        double _duty_cycle;
+        string _processName;
 
-        void evalTriggerRate();
+        float _nProcess;
+        double _bz0;
+
+        double _nPOT;
+            
+        std::vector<trigInfo_>    _trigAll;	     
+        std::vector<trigInfo_>    _trigFinal;    
+        std::vector<trigInfo_>    _trigCaloOnly; 
+        std::vector<trigInfo_>    _trigCaloCalib;
+        std::vector<trigInfo_>    _trigTrack;    
+        std::vector<trigInfo_>    _trigHelix;    
+        std::vector<trigInfo_>    _trigEvtPS;  
+  
+        summaryInfoHist_ _sumHist;
+        trackInfoHist_            _trkHist;
+        helixInfoHist_            _helHist;
+
+        caloTrigSeedHist_         _caloTSeedHist;
+        caloCalibrationHist_      _caloCalibHist;
+        occupancyHist_            _occupancyHist;
+
+        const mu2e::Tracker*      _tracker;
+    
+        const mu2e::StrawDigiMCCollection* _mcdigis;
+        const mu2e::ComboHitCollection*    _chcol;
+        const art::Event*                  _event;
     };
 }
 
@@ -123,162 +291,588 @@ ots::TriggerRates::TriggerRates(fhicl::ParameterSet const& pset)
     _nMaxTrig      (pset.get<size_t>("nFilters", 70)),
     _nTrackTrig    (pset.get<size_t>("nTrackTriggers", 4)),
     _nCaloTrig     (pset.get<size_t>("nCaloTriggers", 4)),
-    _nProcess      (pset.get<float> ("nEventsProcessed", 1.)),
-    _duty_cycle    (pset.get<float> ("dutyCycle", 1.))
-{
-	TLOG_INFO("TriggerRates") << "TriggerRate Plotter construction is beginning " << TLOG_ENDL;
+    _nCaloCalibTrig(pset.get<size_t>("nCaloCalibTriggers", 4)),
+    _trigPaths     (pset.get<std::vector<std::string>>("triggerPathsList")),
+    _sdMCTag       (pset.get<art::InputTag>("strawDigiMCCollection", "compressDigiMCs")),
+    _sdTag         (pset.get<art::InputTag>("strawDigiCollection"  , "makeSD")),
+    _chTag         (pset.get<art::InputTag>("comboHitCollection"   , "TTmakeSH")),
+    _cdTag         (pset.get<art::InputTag>("caloDigiCollection"   , "CaloDigiFromShower")),
+    _evtWeightTag  (pset.get<art::InputTag>("protonBunchIntensity" , "protonBunchIntensity")),
+    _duty_cycle    (pset.get<float> ("dutyCycle", 1.)),
+    _processName   (pset.get<string> ("processName", "globalTrigger")),
+    _nProcess      (pset.get<float> ("nEventsProcessed", 1.))
+  {
+    TLOG_INFO("TriggerRates") << "TriggerRate Plotter construction is beginning " << TLOG_ENDL;
     _trigAll.      resize(_nMaxTrig);	     
     _trigFinal.    resize(_nMaxTrig);    
     _trigCaloOnly. resize(_nMaxTrig); 
     _trigCaloCalib.resize(_nMaxTrig);
     _trigTrack.    resize(_nMaxTrig);    
     _trigHelix.    resize(_nMaxTrig);    
-    _trigEvtPS.    resize(_nMaxTrig); 
+    _trigEvtPS.    resize(_nMaxTrig);    
 	TLOG_DEBUG("TriggerRates") << "TriggerRate Plotter construction complete" << TLOG_ENDL;
-}
+ }
 
-void ots::TriggerRates::beginRun(art::Run const& e)
+ots::TriggerRates::~TriggerRates() {}
+
+void  ots::TriggerRates::bookHistograms(){
+    art::ServiceHandle<art::TFileService> tfs;
+    
+    bookTrigInfoHist(tfs, _sumHist);
+
+    bookTrackInfoHist(tfs, _trkHist);
+    
+    bookHelixInfoHist(tfs, _helHist);
+    
+    bookCaloTrigSeedInfoHist(tfs, _caloTSeedHist);
+    
+    bookCaloCalibInfoHist(tfs, _caloCalibHist);
+
+    bookOccupancyInfoHist(tfs, _occupancyHist);
+  }
+
+
+ void ots::TriggerRates::bookTrigInfoHist(art::ServiceHandle<art::TFileService> & Tfs, summaryInfoHist_ &Hist){
+    art::TFileDirectory trigInfoDir = tfs->mkdir("trigInfo");
+
+    _sumHist._hTrigInfo[0]   = trigInfoDir.make<TH1F>("hTrigInfo_global", "Global Trigger rejection", (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
+    _sumHist._hTrigInfo[1]   = trigInfoDir.make<TH1F>("hTrigInfo_track", "Calo-only Triggers rejection", (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
+    _sumHist._hTrigInfo[2]   = trigInfoDir.make<TH1F>("hTrigInfo_calo", "Track Triggers rejection", (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
+    _sumHist._hTrigInfo[3]   = trigInfoDir.make<TH1F>("hTrigInfo_evtPS", "Event prescaler Trigger bits distribution", (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
+    _sumHist._hTrigInfo[4]   = trigInfoDir.make<TH1F>("hTrigInfo_helix", "HelixSeed Triggers rejection", (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
+    _sumHist._hTrigInfo[5]   = trigInfoDir.make<TH1F>("hTrigInfo_caloCalib", "Calo Calibration rejection", (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
+    _sumHist._hTrigInfo[6]   = trigInfoDir.make<TH1F>("hTrigInfo_final"     , "Global Trigger rejection of the paths"      , (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
+
+    _sumHist._hTrigInfo[10]  = trigInfoDir.make<TH1F>("hTrigInfo_unique_all", "Events found only by each Trig path"        , (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
+    _sumHist._hTrigInfo[11]  = trigInfoDir.make<TH1F>("hTrigInfo_unique"    , "Events found only by each Trig path"        , (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
+
+    _sumHist._hTrigInfo[15]  = trigInfoDir.make<TH1F>("hTrigInfo_paths"     , "Rejection of all the Trigger paths"         , (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
+
+
+    _sumHist._h2DTrigInfo[0] = trigInfoDir.make<TH2F>("h2DTrigInfo_map_all" , "Trigger correlation map from all filters"   , (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5), (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
+    _sumHist._h2DTrigInfo[1] = trigInfoDir.make<TH2F>("h2DTrigInfo_map"     , "Trigger correlation map"                    , (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5), (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));   
+
+    art::TFileDirectory trigBDWDir = tfs->mkdir("trigBDW");
+
+    _sumHist._hTrigBDW[0]   = trigBDWDir.make<TH1F>("hTrigBDW_global"    , "Trigger bandwidth; ; rate [Hz]"                   , (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
+    _sumHist._hTrigBDW[1]   = trigBDWDir.make<TH1F>("hTrigBDW_cumulative", "Cumulative Trigger bandwidth; ; rate [Hz]"        , (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
+    
+  }
+
+void  ots::TriggerRates::bookTrackInfoHist(art::ServiceHandle<art::TFileService> & Tfs, trackInfoHist_ &Hist){
+    for (int i=0; i<_nTrackTrig; ++i){
+      art::TFileDirectory trkInfoDir  = Tfs->mkdir(Form("trk_%i", i));
+      Hist._hTrkInfo[i][0] = trkInfoDir.make<TH1F>(Form("hP_%i"     , i), "Track Momentum; p[MeV/c]", 400, 0, 200);
+      Hist._hTrkInfo[i][1] = trkInfoDir.make<TH1F>(Form("hPt_%i"    , i), "Track Pt; p_{t} [MeV/c]", 400, 0, 200);
+      Hist._hTrkInfo[i][2] = trkInfoDir.make<TH1F>(Form("hNSh_%i"   , i), "N-StrawHits; nStrawHits", 101, -0.5, 100.5);
+      Hist._hTrkInfo[i][3] = trkInfoDir.make<TH1F>(Form("hD0_%i"    , i), "Track impact parameter; d0 [mm]", 801, -400.5, 400.5);
+      Hist._hTrkInfo[i][4] = trkInfoDir.make<TH1F>(Form("hChi2d_%i" , i), "Track #chi^{2}/ndof;#chi^{2}/ndof", 100, 0, 50);
+      Hist._hTrkInfo[i][5] = trkInfoDir.make<TH1F>(Form("hClE_%i"   , i), "calorimeter Cluster energy; E [MeV]", 240, 0, 120);
+      Hist._hTrkInfo[i][6] = trkInfoDir.make<TH1F>(Form("hNLoops_%i", i), "Helix nLoops", 500, 0, 50);
+
+      Hist._hTrkInfo[i][10] = trkInfoDir.make<TH1F>(Form("hPMC_%i" , i), "MC Track Momentum @ tracker front; p[MeV/c]", 400, 0, 200);
+      Hist._hTrkInfo[i][11] = trkInfoDir.make<TH1F>(Form("hPtMC_%i", i), "MC Track Pt @ tracker front; p_{t} [MeV/c]" , 400, 0, 200);
+      Hist._hTrkInfo[i][12] = trkInfoDir.make<TH1F>(Form("hPzMC_%i", i), "MC Track Pt @ tracker front; p_{t} [MeV/c]" , 400, 0, 200);
+      Hist._hTrkInfo[i][13] = trkInfoDir.make<TH1F>(Form("hDP_%i"  , i), "#Delta p @ tracker front; #Delta p = p_{trk} - p_{MC} [MeV/c]"     , 800, -200, 200);
+      Hist._hTrkInfo[i][14] = trkInfoDir.make<TH1F>(Form("hDPt_%i"  , i), "#Delta pT @ tracker front; #Delta pT = pT_{trk} - pT_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hTrkInfo[i][15] = trkInfoDir.make<TH1F>(Form("hDPz_%i"  , i), "#Delta pZ @ tracker front; #Delta pZ = pZ_{trk} - pZ_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hTrkInfo[i][16] = trkInfoDir.make<TH1F>(Form("hPDG_%i"  , i), "PDG Id; PdgId", 2253,   -30.5,   2222.5);
+      Hist._hTrkInfo[i][17] = trkInfoDir.make<TH1F>(Form("hGenZ_%i" , i), "z origin; z-origin [mm]", 300,   0,   15000);
+      Hist._hTrkInfo[i][18] = trkInfoDir.make<TH1F>(Form("hGenR_%i" , i), "radial position origin; r-origin [mm]", 500,   0,   5000);
+      Hist._hTrkInfo[i][19] = trkInfoDir.make<TH1F>(Form("hPDGM_%i" , i), "PDG Mother Id; PdgId-mother", 2253,   -30.5,   2222.5);
+      Hist._hTrkInfo[i][20] = trkInfoDir.make<TH1F>(Form("hEMC_%i"  , i), "MC Energy; E_{MC} [MeV]", 400,   0,   200);
+
+    }
+  }
+
+void  ots::TriggerRates::bookHelixInfoHist(art::ServiceHandle<art::TFileService> & Tfs, helixInfoHist_  &Hist){
+    for (int i=0; i<_nTrackTrig; ++i){
+      art::TFileDirectory helInfoDir  = Tfs->mkdir(Form("helix_%i", i));
+      Hist._hHelInfo[i][0] = helInfoDir.make<TH1F>(Form("hP_%i"        , i), "Helix Momentum; p[MeV/c]", 400, 0, 200);
+      Hist._hHelInfo[i][1] = helInfoDir.make<TH1F>(Form("hPt_%i"       , i), "Helix Pt; p_{t} [MeV/c]", 400, 0, 200);
+      Hist._hHelInfo[i][2] = helInfoDir.make<TH1F>(Form("hNSh_%i"      , i), "N-StrawHits; nStrawHits", 101, -0.5, 100.5);
+      Hist._hHelInfo[i][3] = helInfoDir.make<TH1F>(Form("hD0_%i"       , i), "Helix impact parameter; d0 [mm]", 801, -400.5, 400.5);
+      Hist._hHelInfo[i][4] = helInfoDir.make<TH1F>(Form("hChi2dXY_%i"  , i), "Helix #chi^{2}_{xy}/ndof;#chi^{2}_{xy}/ndof"      , 100, 0, 50);
+      Hist._hHelInfo[i][5] = helInfoDir.make<TH1F>(Form("hChi2dZPhi_%i", i), "Helix #chi^{2}_{z#phi}/ndof;#chi^{2}_{z#phi}/ndof", 100, 0, 50);
+      Hist._hHelInfo[i][6] = helInfoDir.make<TH1F>(Form("hClE_%i"      , i), "calorimeter Cluster energy; E [MeV]", 240, 0, 120);
+      Hist._hHelInfo[i][7] = helInfoDir.make<TH1F>(Form("hLambda_%i"   , i), "Helix #lambda=dz/d#phi; |#lambda| [mm/rad]", 500, 0, 500);
+      Hist._hHelInfo[i][8] = helInfoDir.make<TH1F>(Form("hNLoops_%i"   , i), "Helix nLoops; nLoops", 500, 0, 50);
+      Hist._hHelInfo[i][9] = helInfoDir.make<TH1F>(Form("hHitRatio_%i" , i), "Helix hitRatio; NComboHits/nExpectedComboHits", 200, 0, 2);
+
+        
+      Hist._hHelInfo[i][10] = helInfoDir.make<TH1F>(Form("hPMC_%i" , i), "MC Track Momentum @ tracker front; p[MeV/c]", 400, 0, 200);
+      Hist._hHelInfo[i][11] = helInfoDir.make<TH1F>(Form("hPtMC_%i", i), "MC Track Pt @ tracker front; p_{t} [MeV/c]" , 400, 0, 200);
+      Hist._hHelInfo[i][12] = helInfoDir.make<TH1F>(Form("hPzMC_%i", i), "MC Track Pt @ tracker front; p_{z} [MeV/c]" , 400, 0, 200);
+      Hist._hHelInfo[i][13] = helInfoDir.make<TH1F>(Form("hDP_%i"  , i), "#Delta p @ tracker front; #Delta p = p_{hel} - p_{MC} [MeV/c]"     , 800, -200, 200);
+      Hist._hHelInfo[i][14] = helInfoDir.make<TH1F>(Form("hDPt_%i"  , i), "#Delta pT @ tracker front; #Delta pT = pT_{hel} - pT_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hHelInfo[i][15] = helInfoDir.make<TH1F>(Form("hDPz_%i"  , i), "#Delta pZ @ tracker front; #Delta pZ = pZ_{hel} - pZ_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hHelInfo[i][16] = helInfoDir.make<TH1F>(Form("hPDG_%i"  , i), "PDG Id; PdgId"                        , 2253,   -30.5,   2222.5);
+      Hist._hHelInfo[i][17] = helInfoDir.make<TH1F>(Form("hGenZ_%i" , i), "z origin; z-origin [mm]"              , 300,   0,   15000);
+      Hist._hHelInfo[i][18] = helInfoDir.make<TH1F>(Form("hGenR_%i" , i), "radial position origin; r-origin [mm]", 500,   0,   5000);
+      Hist._hHelInfo[i][19] = helInfoDir.make<TH1F>(Form("hPDGM_%i" , i), "PDG Mother Id; PdgId-mother"          , 2253,   -30.5,   2222.5);
+      //      Hist._hHelInfo[i][20] = helInfoDir.make<TH1F>(Form("hEMC_%i"  , i), "MC Energy; E_{MC} [MeV]"              , 400,   0,   200);
+      
+      Hist._hHelInfo[i][20] = helInfoDir.make<TH1F>(Form("hMuMinusPMC_%i" , i), "MC Track Momentum @ tracker front; p[MeV/c]", 400, 0, 200);
+      Hist._hHelInfo[i][21] = helInfoDir.make<TH1F>(Form("hMuMinusP_%i", i), "Track P; p [MeV/c]" , 400, 0, 200);
+      Hist._hHelInfo[i][22] = helInfoDir.make<TH1F>(Form("hMuMinusD0_%i", i), "Helix impact parameter; d0 [mm]", 801, -400.5, 400.5);
+      Hist._hHelInfo[i][23] = helInfoDir.make<TH1F>(Form("hMuMinusDP_%i"  , i), "#Delta p @ tracker front; #Delta p = p_{hel} - p_{MC} [MeV/c]"     , 800, -200, 200);
+      Hist._hHelInfo[i][24] = helInfoDir.make<TH1F>(Form("hMuMinusDPt_%i"  , i), "#Delta pT @ tracker front; #Delta pT = pT_{hel} - pT_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hHelInfo[i][25] = helInfoDir.make<TH1F>(Form("hMuMinusDPz_%i"  , i), "#Delta pZ @ tracker front; #Delta pZ = pZ_{hel} - pZ_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hHelInfo[i][26] = helInfoDir.make<TH1F>(Form("hMuMinusPDG_%i"  , i), "PDG Id; PdgId"                        , 2253,   -30.5,   2222.5);
+      Hist._hHelInfo[i][27] = helInfoDir.make<TH1F>(Form("hMuMinusGenZ_%i" , i), "origin; z-origin [mm]", 300,   0,   15000);
+      Hist._hHelInfo[i][28] = helInfoDir.make<TH1F>(Form("hMuMinusGenR_%i" , i), "r origin; r-origin [mm]",500,   0,   5000);
+      Hist._hHelInfo[i][29] = helInfoDir.make<TH1F>(Form("hMuMinusLambda_%i" , i), "Helix #lambda=dz/d#phi; |#lambda| [mm/rad]", 500, 0, 500);
+     
+      Hist._hHelInfo[i][30] = helInfoDir.make<TH1F>(Form("hMuPlusPMC_%i" , i), "MC Track Momentum @ tracker front; p[MeV/c]", 400, 0, 200);
+      Hist._hHelInfo[i][31] = helInfoDir.make<TH1F>(Form("hMuPlusP_%i", i), "Track P; p [MeV/c]" , 400, 0, 200);
+      Hist._hHelInfo[i][32] = helInfoDir.make<TH1F>(Form("hMuPlusD0_%i", i), "Helix impact parameter; d0 [mm]", 801, -400.5, 400.5);
+      Hist._hHelInfo[i][33] = helInfoDir.make<TH1F>(Form("hMuPlusDP_%i"  , i), "#Delta p @ tracker front; #Delta p = p_{hel} - p_{MC} [MeV/c]"     , 800, -200, 200);
+      Hist._hHelInfo[i][34] = helInfoDir.make<TH1F>(Form("hMuPlusDPt_%i"  , i), "#Delta pT @ tracker front; #Delta pT = pT_{hel} - pT_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hHelInfo[i][35] = helInfoDir.make<TH1F>(Form("hMuPlusDPz_%i"  , i), "#Delta pZ @ tracker front; #Delta pZ = pZ_{hel} - pZ_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hHelInfo[i][36] = helInfoDir.make<TH1F>(Form("hMuPlusPDG_%i"  , i), "PDG Id; PdgId"                        , 2253,   -30.5,   2222.5);
+      Hist._hHelInfo[i][37] = helInfoDir.make<TH1F>(Form("hMuPlusGenZ_%i" , i), "origin; z-origin [mm];", 300,   0,   15000);
+      Hist._hHelInfo[i][38] = helInfoDir.make<TH1F>(Form("hMuPlusGenR_%i" , i), "r origin;  r-origin [mm]", 500,   0,   5000);
+      Hist._hHelInfo[i][39] = helInfoDir.make<TH1F>(Form("hMuPlusLambda_%i" , i), "Helix #lambda=dz/d#phi; |#lambda| [mm/rad]", 500, 0, 500);
+
+      Hist._hHelInfo[i][40] = helInfoDir.make<TH1F>(Form("hIPAMuPMC_%i" , i), "MC Track Momentum @ tracker front; p[MeV/c]", 400, 0, 200);
+      Hist._hHelInfo[i][41] = helInfoDir.make<TH1F>(Form("hIPAMuP_%i", i), "Track P; p [MeV/c]" , 400, 0, 200);
+      Hist._hHelInfo[i][42] = helInfoDir.make<TH1F>(Form("hIPAMuD0_%i", i), "Helix impact parameter; d0 [mm]", 801, -400.5, 400.5);
+      Hist._hHelInfo[i][43] = helInfoDir.make<TH1F>(Form("hIPAMuDP_%i"  , i), "#Delta p @ tracker front; #Delta p = p_{hel} - p_{MC} [MeV/c]"     , 800, -200, 200);
+      Hist._hHelInfo[i][44] = helInfoDir.make<TH1F>(Form("hIPAMuDPt_%i"  , i), "#Delta pT @ tracker front; #Delta pT = pT_{hel} - pT_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hHelInfo[i][45] = helInfoDir.make<TH1F>(Form("hIPAMuDPz_%i"  , i), "#Delta pZ @ tracker front; #Delta pZ = pZ_{hel} - pZ_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hHelInfo[i][46] = helInfoDir.make<TH1F>(Form("hIPAMuPDG_%i"  , i), "PDG Id; PdgId"                        , 2253,   -30.5,   2222.5);
+      Hist._hHelInfo[i][47] = helInfoDir.make<TH1F>(Form("hIPAMuGenZ_%i" , i), "z origin; z-origin [mm]", 300,   0,   15000);
+      Hist._hHelInfo[i][48] = helInfoDir.make<TH1F>(Form("hIPAMuGenR_%i" , i), "r origin; r-origin [mm]", 500,   0,   5000);
+      Hist._hHelInfo[i][49] = helInfoDir.make<TH1F>(Form("hIPAMuLambda_%i" , i), "Helix #lambda=dz/d#phi; |#lambda| [mm/rad]", 500, 0, 500);
+
+      Hist._hHelInfo[i][50] = helInfoDir.make<TH1F>(Form("hGammaPMC_%i" , i), "MC Track Momentum @ tracker front; p[MeV/c]", 400, 0, 200);
+      Hist._hHelInfo[i][51] = helInfoDir.make<TH1F>(Form("hGammaP_%i", i), "Track P; p [MeV/c]" , 400, 0, 200);
+      Hist._hHelInfo[i][52] = helInfoDir.make<TH1F>(Form("hGammaD0_%i", i), "Helix impact parameter; d0 [mm]", 801, -400.5, 400.5);
+      Hist._hHelInfo[i][53] = helInfoDir.make<TH1F>(Form("hGammaDP_%i"  , i), "#Delta p @ tracker front; #Delta p = p_{hel} - p_{MC} [MeV/c]"     , 800, -200, 200);
+      Hist._hHelInfo[i][54] = helInfoDir.make<TH1F>(Form("hGammaDPt_%i"  , i), "#Delta pT @ tracker front; #Delta pT = pT_{hel} - pT_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hHelInfo[i][55] = helInfoDir.make<TH1F>(Form("hGammaDPz_%i"  , i), "#Delta pZ @ tracker front; #Delta pZ = pZ_{hel} - pZ_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hHelInfo[i][56] = helInfoDir.make<TH1F>(Form("hGammaPDG_%i"  , i), "PDG Id; PdgId"                        , 2253,   -30.5,   2222.5);
+      Hist._hHelInfo[i][57] = helInfoDir.make<TH1F>(Form("hGammaGenZ_%i" , i), "origin; z-origin [mm]", 300,   0,   15000);
+      Hist._hHelInfo[i][58] = helInfoDir.make<TH1F>(Form("hGammaGenR_%i" , i), "radial position origin; r-origin [mm]", 500,   0,   5000);
+      Hist._hHelInfo[i][59] = helInfoDir.make<TH1F>(Form("hGammaLambda_%i" , i), "Helix #lambda=dz/d#phi; |#lambda| [mm/rad]", 500, 0, 500);
+
+      Hist._hHelInfo[i][60] = helInfoDir.make<TH1F>(Form("hProtonPMC_%i" , i), "MC Track Momentum @ tracker front; p[MeV/c]", 400, 0, 200);
+      Hist._hHelInfo[i][61] = helInfoDir.make<TH1F>(Form("hProtonP_%i", i), "Track P; p [MeV/c]" , 400, 0, 200);
+      Hist._hHelInfo[i][62] = helInfoDir.make<TH1F>(Form("hProtonD0_%i", i), "Helix impact parameter; d0 [mm]", 801, -400.5, 400.5);
+      Hist._hHelInfo[i][63] = helInfoDir.make<TH1F>(Form("hProtonDP_%i"  , i), "#Delta p @ tracker front; #Delta p = p_{hel} - p_{MC} [MeV/c]"     , 800, -200, 200);
+      Hist._hHelInfo[i][64] = helInfoDir.make<TH1F>(Form("hProtonDPt_%i"  , i), "#Delta pT @ tracker front; #Delta pT = pT_{hel} - pT_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hHelInfo[i][65] = helInfoDir.make<TH1F>(Form("hProtonDPz_%i"  , i), "#Delta pZ @ tracker front; #Delta pZ = pZ_{hel} - pZ_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hHelInfo[i][66] = helInfoDir.make<TH1F>(Form("hProtonPDG_%i"  , i), "PDG Id; PdgId"                        , 2253,   -30.5,   2222.5);
+      Hist._hHelInfo[i][67] = helInfoDir.make<TH1F>(Form("hProtonGenZ_%i" , i), "origin; z-origin [mm]", 300,   0,   15000);
+      Hist._hHelInfo[i][68] = helInfoDir.make<TH1F>(Form("hProtonGenR_%i" , i), "radial position origin; r-origin [mm]", 500,   0,   5000);
+      Hist._hHelInfo[i][69] = helInfoDir.make<TH1F>(Form("hProtonLambda_%i" , i), "Helix #lambda=dz/d#phi; |#lambda| [mm/rad]", 500, 0, 500);
+
+      Hist._hHelInfo[i][70] = helInfoDir.make<TH1F>(Form("hN0PMC_%i" , i), "MC Track Momentum @ tracker front; p[MeV/c]", 400, 0, 200);
+      Hist._hHelInfo[i][71] = helInfoDir.make<TH1F>(Form("hN0P_%i", i), "Track P; p [MeV/c]" , 400, 0, 200);
+      Hist._hHelInfo[i][72] = helInfoDir.make<TH1F>(Form("hN0D0_%i", i), "Helix impact parameter; d0 [mm]", 801, -400.5, 400.5);
+      Hist._hHelInfo[i][73] = helInfoDir.make<TH1F>(Form("hN0DP_%i"  , i), "#Delta p @ tracker front; #Delta p = p_{hel} - p_{MC} [MeV/c]"     , 800, -200, 200);
+      Hist._hHelInfo[i][74] = helInfoDir.make<TH1F>(Form("hN0DPt_%i"  , i), "#Delta pT @ tracker front; #Delta pT = pT_{hel} - pT_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hHelInfo[i][75] = helInfoDir.make<TH1F>(Form("hN0DPz_%i"  , i), "#Delta pZ @ tracker front; #Delta pZ = pZ_{hel} - pZ_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hHelInfo[i][76] = helInfoDir.make<TH1F>(Form("hN0PDG_%i"  , i), "PDG Id; PdgId"                        , 2253,   -30.5,   2222.5);
+      Hist._hHelInfo[i][77] = helInfoDir.make<TH1F>(Form("hN0GenZ_%i" , i), "origin; z-origin [mm]", 300,   0,   15000);
+      Hist._hHelInfo[i][78] = helInfoDir.make<TH1F>(Form("hN0GenR_%i" , i), "radial position origin; r-origin [mm]", 500,   0,   5000);
+      Hist._hHelInfo[i][79] = helInfoDir.make<TH1F>(Form("hN0Lambda_%i" , i), "Helix #lambda=dz/d#phi; |#lambda| [mm/rad]", 500, 0, 500);
+      
+      Hist._hHelInfo[i][80] = helInfoDir.make<TH1F>(Form("hPiMinusPMC_%i" , i), "MC Track Momentum @ tracker front; p[MeV/c]", 400, 0, 200);
+      Hist._hHelInfo[i][81] = helInfoDir.make<TH1F>(Form("hPiMinusP_%i", i), "Track P; p [MeV/c]" , 400, 0, 200);
+      Hist._hHelInfo[i][82] = helInfoDir.make<TH1F>(Form("hPiMinusD0_%i", i), "Helix impact parameter; d0 [mm]", 801, -400.5, 400.5);
+      Hist._hHelInfo[i][83] = helInfoDir.make<TH1F>(Form("hPiMinusDP_%i"  , i), "#Delta p @ tracker front; #Delta p = p_{hel} - p_{MC} [MeV/c]"     , 800, -200, 200);
+      Hist._hHelInfo[i][84] = helInfoDir.make<TH1F>(Form("hPiMinusDPt_%i"  , i), "#Delta pT @ tracker front; #Delta pT = pT_{hel} - pT_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hHelInfo[i][85] = helInfoDir.make<TH1F>(Form("hPiMinusDPz_%i"  , i), "#Delta pZ @ tracker front; #Delta pZ = pZ_{hel} - pZ_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hHelInfo[i][86] = helInfoDir.make<TH1F>(Form("hPiMinusPDG_%i"  , i), "PDG Id; PdgId"                        , 2253,   -30.5,   2222.5);
+      Hist._hHelInfo[i][87] = helInfoDir.make<TH1F>(Form("hPiMinusGenZ_%i" , i), "origin; z-origin [mm]", 300,   0,   15000);
+      Hist._hHelInfo[i][88] = helInfoDir.make<TH1F>(Form("hPiMinusGenR_%i" , i), "r origin; r-origin [mm]",500,   0,   5000);
+      Hist._hHelInfo[i][89] = helInfoDir.make<TH1F>(Form("hPiMinusLambda_%i" , i), "Helix #lambda=dz/d#phi; |#lambda| [mm/rad]", 500, 0, 500);
+     
+      Hist._hHelInfo[i][90] = helInfoDir.make<TH1F>(Form("hPiPlusPMC_%i" , i), "MC Track Momentum @ tracker front; p[MeV/c]", 400, 0, 200);
+      Hist._hHelInfo[i][91] = helInfoDir.make<TH1F>(Form("hPiPlusP_%i", i), "Track P; p [MeV/c]" , 400, 0, 200);
+      Hist._hHelInfo[i][92] = helInfoDir.make<TH1F>(Form("hPiPlusD0_%i", i), "Helix impact parameter; d0 [mm]", 801, -400.5, 400.5);
+      Hist._hHelInfo[i][93] = helInfoDir.make<TH1F>(Form("hPiPlusDP_%i"  , i), "#Delta p @ tracker front; #Delta p = p_{hel} - p_{MC} [MeV/c]"     , 800, -200, 200);
+      Hist._hHelInfo[i][94] = helInfoDir.make<TH1F>(Form("hPiPlusDPt_%i"  , i), "#Delta pT @ tracker front; #Delta pT = pT_{hel} - pT_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hHelInfo[i][95] = helInfoDir.make<TH1F>(Form("hPiPlusDPz_%i"  , i), "#Delta pZ @ tracker front; #Delta pZ = pZ_{hel} - pZ_{MC} [MeV/c]", 800, -200, 200);
+      Hist._hHelInfo[i][96] = helInfoDir.make<TH1F>(Form("hPiPlusPDG_%i"  , i), "PDG Id; PdgId"                        , 2253,   -30.5,   2222.5);
+      Hist._hHelInfo[i][97] = helInfoDir.make<TH1F>(Form("hPiPlusGenZ_%i" , i), "origin; z-origin [mm];", 300,   0,   15000);
+      Hist._hHelInfo[i][98] = helInfoDir.make<TH1F>(Form("hPiPlusGenR_%i" , i), "r origin;  r-origin [mm]", 500,   0,   5000);
+      Hist._hHelInfo[i][99] = helInfoDir.make<TH1F>(Form("hPiPlusLambda_%i" , i), "Helix #lambda=dz/d#phi; |#lambda| [mm/rad]", 500, 0, 500);
+
+ 
+    }
+  }
+  //--------------------------------------------------------------------------------//
+  void  ots::TriggerRates::bookCaloTrigSeedInfoHist(art::ServiceHandle<art::TFileService> & Tfs, caloTrigSeedHist_      &Hist){
+    for (int i=0; i<_nCaloTrig; ++i){
+      art::TFileDirectory caloInfoDir = Tfs->mkdir(Form("caloOnly_%i",i));
+      Hist._hCaloOnlyInfo[i][0] = caloInfoDir.make<TH1F>(Form("hEPeak_%i"   , i), "peak energy; E[MeV]"        , 400, 0, 200);
+      Hist._hCaloOnlyInfo[i][1] = caloInfoDir.make<TH1F>(Form("hR1Max1_%i"   , i), "ring1 max; ring1max [MeV]" , 400, 0, 200);
+      Hist._hCaloOnlyInfo[i][2] = caloInfoDir.make<TH1F>(Form("hR1Max2_%i"   , i), "ring1 max; ring1max2 [MeV]", 400, 0, 200);    
+    }
+  }
+  //--------------------------------------------------------------------------------//
+  void  ots::TriggerRates::bookCaloCalibInfoHist(art::ServiceHandle<art::TFileService> & Tfs, caloCalibrationHist_   &Hist){      
+    for (int i=0; i<_nCaloCalibTrig; ++i){
+      art::TFileDirectory caloCalibInfoDir = Tfs->mkdir(Form("caloCalib_%i",i));
+      Hist._hCaloCalibInfo[i][0] = caloCalibInfoDir.make<TH1F>(Form("hE_%i"   , i), "Cluster energy; E[MeV]", 800, 0, 800);
+      Hist._hCaloCalibInfo[i][1] = caloCalibInfoDir.make<TH1F>(Form("hN_%i"   , i), "Cluster size; nCrystalHits", 101, -0.5, 100.5);
+    }    
+  }
+
+  //--------------------------------------------------------------------------------//
+  //--------------------------------------------------------------------------------//
+  void ots::TriggerRates::bookOccupancyInfoHist(art::ServiceHandle<art::TFileService> & Tfs, occupancyHist_       &Hist){
+    
+    for (int i=0; i<_nTrackTrig; ++i){
+      art::TFileDirectory occInfoDir = Tfs->mkdir(Form("occInfoTrk_%i", i));
+      Hist._hOccInfo  [i][0]  = occInfoDir.make<TH1F>(Form("hInstLum_%i"  ,i),"distrbution of instantaneous lum; p/#mu-bunch"  ,  1000, 1e6, 4e8);
+      
+      Hist._h2DOccInfo[i][0]  = occInfoDir.make<TH2F>(Form("hNSDVsLum_%i" ,i),"inst lum vs nStrawDigi; p/#mu-bunch; nStrawDigi",  1000, 1e6, 4e8, 5000, 0., 20000.);
+      Hist._h2DOccInfo[i][1]  = occInfoDir.make<TH2F>(Form("hNCDVsLum_%i" ,i),"inst lum vs nCaloDigi; p/#mu-bunch; nCaloDigi"  ,  1000, 1e6, 4e8, 5000, 0., 20000.);
+    }
+    
+    for (int i=_nTrackTrig; i<_nTrackTrig*2; ++i){
+      art::TFileDirectory occInfoDir = Tfs->mkdir(Form("occInfoHel_%i", i));
+      Hist._hOccInfo  [i][0]  = occInfoDir.make<TH1F>(Form("hInstLum_%i"  ,i),"distrbution of instantaneous lum; p/#mu-bunch"  ,  1000, 1e6, 4e8);
+      
+      Hist._h2DOccInfo[i][0]  = occInfoDir.make<TH2F>(Form("hNSDVsLum_%i" ,i),"inst lum vs nStrawDigi; p/#mu-bunch; nStrawDigi",  1000, 1e6, 4e8, 5000, 0., 20000.);
+      Hist._h2DOccInfo[i][1]  = occInfoDir.make<TH2F>(Form("hNCDVsLum_%i" ,i),"inst lum vs nCaloDigi; p/#mu-bunch; nCaloDigi"  ,  1000, 1e6, 4e8, 5000, 0., 20000.);
+    }
+    
+    for (int i=_nTrackTrig*2; i<_nTrackTrig*2+_nCaloTrig; ++i){
+      art::TFileDirectory occInfoDir = Tfs->mkdir(Form("occInfoCaloTrig_%i", i));
+      Hist._hOccInfo  [i][0]  = occInfoDir.make<TH1F>(Form("hInstLum_%i"  ,i),"distrbution of instantaneous lum; p/#mu-bunch"  ,  1000, 1e6, 4e8);
+      			    
+      Hist._h2DOccInfo[i][0]  = occInfoDir.make<TH2F>(Form("hNSDVsLum_%i" ,i),"inst lum vs nStrawDigi; p/#mu-bunch; nStrawDigi",  1000, 1e6, 4e8, 5000, 0., 20000.);
+      Hist._h2DOccInfo[i][1]  = occInfoDir.make<TH2F>(Form("hNCDVsLum_%i" ,i),"inst lum vs nCaloDigi; p/#mu-bunch; nCaloDigi"  ,  1000, 1e6, 4e8, 5000, 0., 20000.);
+    }
+    
+     int    index_last = _nTrackTrig+_nCaloTrig;
+     art::TFileDirectory occInfoDir = Tfs->mkdir("occInfoGeneral");
+     Hist._hOccInfo  [index_last][0]  = occInfoDir.make<TH1F>(Form("hInstLum_%i"  ,index_last),"distrbution of instantaneous lum; p/#mu-bunch"  ,  1000, 1e6, 4e8);
+      
+     Hist._h2DOccInfo[index_last][0]  = occInfoDir.make<TH2F>(Form("hNSDVsLum_%i" ,index_last),"inst lum vs nStrawDigi; p/#mu-bunch; nStrawDigi",  1000, 1e6, 4e8, 5000, 0., 20000.);
+     Hist._h2DOccInfo[index_last][1]  = occInfoDir.make<TH2F>(Form("hNCDVsLum_%i" ,index_last),"inst lum vs nCaloDigi; p/#mu-bunch; nCaloDigi"  ,  1000, 1e6, 4e8, 5000, 0., 20000.);
+ 
+  }
+
+/*void ots::TriggerRates::beginRun(art::Run const& e)
 {
 	if(e.run() == current_run_)
 		return;
 	current_run_ = e.run();
-}
+}*/
 
 void ots::TriggerRates::beginJob(){
-    BookHistos();
+  bookHistograms();
 }
 
-void ots::TriggerRates::analyze(art::Event const& e)
+void ots::TriggerRates::analyze(art::Event const& event)
 {
 	TLOG_INFO("TriggerRate - Plotter")
-	    << "TriggerRate Plotting Module is Analyzing Event #  " << e.event() << TLOG_ENDL;
-    FillHistos();
+	    << "TriggerRate Plotting Module is Analyzing Event #  " << event.event() << TLOG_ENDL;
+
+    _nPOT  = -1.;
+    art::Handle<mu2e::ProtonBunchIntensity> evtWeightH;
+    event.getByLabel(_evtWeightTag, evtWeightH);
+    if (evtWeightH.isValid()){
+      _nPOT  = (double)evtWeightH->intensity();
+    }
+
+    art::InputTag const tag{Form("TriggerResults::%s", _processName.c_str())};  
+    auto const trigResultsH   = event.getValidHandle<art::TriggerResults>(tag);
+    const art::TriggerResults *trigResults = trigResultsH.product();
+    mu2e::TriggerResultsNavigator   trigNavig(trigResults);
+    
+    for (unsigned int i=0; i< _trigPaths.size(); ++i){
+      string&path = _trigPaths.at(i);
+      if (trigNavig.accepted(path)) _sumHist._hTrigInfo[15]->Fill((double)i);
+    }
+    
+    //get the strawDigiMC truth if present
+    art::Handle<mu2e::StrawDigiMCCollection> mcdH;
+    event.getByLabel(_sdMCTag, mcdH);
+    if (mcdH.isValid()) {
+      _mcdigis = mcdH.product();
+      _event   = &event;
+    }else {
+      _mcdigis = NULL;
+    }
+
+    //get the StrawDigi Collection
+    art::Handle<mu2e::StrawDigiCollection> sdH;
+    event.getByLabel(_sdTag, sdH);
+    const mu2e::StrawDigiCollection* sdCol(0);
+    if (sdH.isValid()) {
+      sdCol = sdH.product();
+    }
+
+    //get the ComboHitCollection
+    art::Handle<mu2e::ComboHitCollection> chH;
+    event.getByLabel(_chTag, chH);
+    if (chH.isValid()) {
+      _chcol = chH.product();
+    }else {
+      _chcol = NULL;
+    }
+
+    //get the CaloDigi Collection
+    art::Handle<mu2e::CaloDigiCollection> cdH;
+    event.getByLabel(_cdTag, cdH);
+    const mu2e::CaloDigiCollection* cdCol(0);
+    if (cdH.isValid()) {
+      cdCol = cdH.product();
+    }
+    
+    //fill the general occupancy histogram
+    fillOccupancyInfo   (_nTrackTrig+_nCaloTrig, sdCol, cdCol, _occupancyHist);
+
+    std::vector<int>   trigFlagAll_index, trigFlag_index;
+
+    art::Handle<mu2e::TriggerInfo> hTrigInfoH;
+    const mu2e::TriggerInfo* trigInfo(0);
+
+    for (unsigned int i=0; i< _trigPaths.size(); ++i){
+      string&path = _trigPaths.at(i);
+      if (trigNavig.accepted(path)) {
+	       std::vector<std::string>      moduleNames = trigNavig.triggerModules(path);
+
+	    for (size_t j=0; j<moduleNames.size(); ++j){
+	      std::string  moduleLabel = moduleNames[j];
+	      int          index_all(0);         
+	      int          index(0);         
+        
+	      //fill the Global Trigger bits info
+	      findTrigIndex(_trigAll, moduleLabel, index_all);
+	      _trigAll[index_all].label  = moduleLabel;
+
+	      event.getByLabel(moduleLabel, hTrigInfoH);
+	      if (hTrigInfoH.isValid()){
+	        trigInfo = hTrigInfoH.product();
+	      }
+	      if ( moduleLabel.find(std::string("HSFilter")) != std::string::npos) {
+	        findTrigIndex(_trigHelix, moduleLabel, index);
+	        _trigHelix[index].label  = moduleLabel;
+	        _trigHelix[index].counts = _trigHelix[index].counts + 1;
+	        const mu2e::HelixSeed *hseed = trigInfo->helix().get();
+	        if(hseed) {
+	          fillHelixTrigInfo(index, hseed, _helHist);
+	          fillOccupancyInfo(_nTrackTrig+index, sdCol, cdCol, _occupancyHist);
+	        }
+	        
+	      }else if ( moduleLabel.find("TSFilter") != std::string::npos){
+	        findTrigIndex(_trigTrack, moduleLabel, index);
+	        _trigTrack[index].label  = moduleLabel;
+	        _trigTrack[index].counts = _trigTrack[index].counts + 1;
+	        const mu2e::KalSeed*kseed = trigInfo->track().get();
+	        if(kseed) {
+	          fillTrackTrigInfo(index, kseed, _trkHist);
+	          fillOccupancyInfo(index, sdCol, cdCol, _occupancyHist);
+	        }
+	        trigFlag_index.push_back(index_all);
+	      }else if ( moduleLabel.find("EventPrescale") != std::string::npos){
+	        findTrigIndex(_trigEvtPS, moduleLabel, index);
+	        _trigEvtPS[index].label  = moduleLabel;
+	        _trigEvtPS[index].counts = _trigEvtPS[index].counts + 1;
+	      }else if ( moduleLabel.find("CaloCosmicCalib") != std::string::npos){
+	        findTrigIndex(_trigCaloCalib, moduleLabel, index);
+	        _trigCaloCalib[index].label  = moduleLabel;
+	        _trigCaloCalib[index].counts = _trigCaloCalib[index].counts + 1;
+	        const mu2e::CaloCluster*cluster = trigInfo->caloCluster().get();
+	        if(cluster) fillCaloCalibTrigInfo(index, cluster, _caloCalibHist);
+	        trigFlag_index.push_back(index_all);
+	      }else if ( (moduleLabel.find("caloMVACEFilter") != std::string::npos) || (moduleLabel.find("caloLHCEFilter") != std::string::npos) ){
+	        findTrigIndex(_trigCaloOnly, moduleLabel, index);
+	        _trigCaloOnly[index].label  = moduleLabel;
+	        _trigCaloOnly[index].counts = _trigCaloOnly[index].counts + 1;
+	        const mu2e::CaloTrigSeed*clseed = trigInfo->caloTrigSeed().get();
+	        if(clseed) {
+	          fillCaloTrigSeedInfo(index, clseed, _caloTSeedHist);
+	          fillOccupancyInfo   (_nTrackTrig*2+index, sdCol, cdCol, _occupancyHist);
+	        }
+	        trigFlag_index.push_back(index_all);	    
+	      }
+	      
+
+	      if ( moduleLabel.find("caloMVACEFilter") || moduleLabel.find("TSFilter")){ 
+	        findTrigIndex(_trigFinal, moduleLabel, index);
+	        _trigFinal[index].label    = moduleLabel;
+	        _trigFinal[index].counts   = _trigFinal[index].counts + 1;
+	        _trigAll[index_all].counts = _trigAll[index_all].counts + 1;
+	        trigFlagAll_index.push_back(index_all);
+	      }
+	    }//end loop over the modules in a given trigger path
+          }
+    }
+  
+    //now fill the correlation matrix
+    for (size_t i=0; i<trigFlagAll_index.size(); ++i){
+      for (size_t j=0; j<trigFlagAll_index.size(); ++j){
+	_sumHist._h2DTrigInfo[0]->Fill(trigFlagAll_index.at(i), trigFlagAll_index.at(j));
+      }
+    }
+    
+    if (trigFlagAll_index.size() == 1) _sumHist._hTrigInfo[10]->Fill(trigFlagAll_index.at(0));
 }
 
+  void ots::TriggerRates::endJob(){
 
-  void ots::TriggerRates::BookHistos(){
-    art::TFileDirectory trigInfoDir = tfs->mkdir("trigInfo");
-
-    sumHist_._hTrigInfo[0]   = trigInfoDir.make<TH1F>("hTrigInfo_global", "Global Trigger rejection", (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
-    sumHist_._hTrigInfo[1]   = trigInfoDir.make<TH1F>("hTrigInfo_track", "Calo-only Triggers rejection", (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
-    sumHist_._hTrigInfo[2]   = trigInfoDir.make<TH1F>("hTrigInfo_calo", "Track Triggers rejection", (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
-    sumHist_._hTrigInfo[3]   = trigInfoDir.make<TH1F>("hTrigInfo_evtPS", "Event prescaler Trigger bits distribution", (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
-    sumHist_._hTrigInfo[4]   = trigInfoDir.make<TH1F>("hTrigInfo_helix", "HelixSeed Triggers rejection", (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
-    sumHist_._hTrigInfo[5]   = trigInfoDir.make<TH1F>("hTrigInfo_caloCalib", "Calo Calibration rejection", (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
-    sumHist_._hTrigInfo[6]   = trigInfoDir.make<TH1F>("hTrigInfo_final"     , "Global Trigger rejection of the paths"      , (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
-
-    sumHist_._hTrigInfo[10]  = trigInfoDir.make<TH1F>("hTrigInfo_unique_all", "Events found only by each Trig path"        , (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
-    sumHist_._hTrigInfo[11]  = trigInfoDir.make<TH1F>("hTrigInfo_unique"    , "Events found only by each Trig path"        , (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
-
-    sumHist_._hTrigInfo[15]  = trigInfoDir.make<TH1F>("hTrigInfo_paths"     , "Rejection of all the Trigger paths"         , (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
-
-
-    sumHist_._h2DTrigInfo[0] = trigInfoDir.make<TH2F>("h2DTrigInfo_map_all" , "Trigger correlation map from all filters"   , (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5), (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
-    sumHist_._h2DTrigInfo[1] = trigInfoDir.make<TH2F>("h2DTrigInfo_map"     , "Trigger correlation map"                    , (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5), (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));   
-
-    art::TFileDirectory trigBDWDir = tfs->mkdir("trigBDW");
-
-    sumHist_._hTrigBDW[0]   = trigBDWDir.make<TH1F>("hTrigBDW_global"    , "Trigger bandwidth; ; rate [Hz]"                   , (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
-    sumHist_._hTrigBDW[1]   = trigBDWDir.make<TH1F>("hTrigBDW_cumulative", "Cumulative Trigger bandwidth; ; rate [Hz]"        , (_nMaxTrig+2), -0.5, (_nMaxTrig+1.5));       
+    //set hitograms' titles
+    //Helix
+    for (int i=0; i<_nTrackTrig; ++i){
+      for (int j=0; j<kNHelixTrigVar; ++j){
+	if (_helHist._hHelInfo[i][j] == NULL)    continue;
+	string title = _trigHelix[i].label +": "+ _helHist._hHelInfo[i][j]->GetTitle();
+	_helHist._hHelInfo[i][j]->SetTitle(title.c_str());
+      }
+    }
     
-  }
+    //Tracks
+    for (int i=0; i<_nTrackTrig; ++i){
+      for (int j=0; j<kNTrackTrigVar; ++j){
+	if (_trkHist._hTrkInfo[i][j] == NULL)    continue;
+	string title = _trigTrack[i].label +": "+ _trkHist._hTrkInfo[i][j]->GetTitle();
+	_trkHist._hTrkInfo[i][j]->SetTitle(title.c_str());
+      }
+    }
+
+ 
+    //occupancy
+    //tracks
+    for (int i=0; i<_nTrackTrig; ++i){
+      for (int j=0; j<kNOccVar; ++j){
+	if (_occupancyHist._hOccInfo[i][j] != NULL)    {
+	  string title = _trigTrack[i].label +": "+ _occupancyHist._hOccInfo[i][j]->GetTitle();
+	  _occupancyHist._hOccInfo[i][j]->SetTitle(title.c_str());
+	}
+	if (_occupancyHist._h2DOccInfo[i][j] != NULL)    {
+	  string title = _trigTrack[i].label +": "+ _occupancyHist._h2DOccInfo[i][j]->GetTitle();
+	  _occupancyHist._h2DOccInfo[i][j]->SetTitle(title.c_str());
+	}
+      }
+    }
+    //helix
+    for (int i=_nTrackTrig; i<_nTrackTrig*2; ++i){
+      for (int j=0; j<kNOccVar; ++j){
+	if (_occupancyHist._hOccInfo[i][j] != NULL)    {
+	  string title = _trigHelix[i].label +": "+ _occupancyHist._hOccInfo[i][j]->GetTitle();
+	  _occupancyHist._hOccInfo[i][j]->SetTitle(title.c_str());
+	}
+	if (_occupancyHist._h2DOccInfo[i][j] != NULL)    {
+	  string title = _trigHelix[i].label +": "+ _occupancyHist._h2DOccInfo[i][j]->GetTitle();
+	  _occupancyHist._h2DOccInfo[i][j]->SetTitle(title.c_str());
+	}
+      }
+    }
+    //calo trig
+    for (int i=_nTrackTrig*2; i<_nTrackTrig*2+_nCaloTrig; ++i){
+      for (int j=0; j<kNOccVar; ++j){
+	if (_occupancyHist._hOccInfo[i][j] != NULL)    {
+	  string title = _trigCaloOnly[i].label +": "+ _occupancyHist._hOccInfo[i][j]->GetTitle();
+	  _occupancyHist._hOccInfo[i][j]->SetTitle(title.c_str());
+	}
+	if (_occupancyHist._h2DOccInfo[i][j] != NULL)    {
+	  string title = _trigCaloOnly[i].label +": "+ _occupancyHist._h2DOccInfo[i][j]->GetTitle();
+	  _occupancyHist._h2DOccInfo[i][j]->SetTitle(title.c_str());
+	}
+      }   
+    }
 
 
-void ots::TriggerRates::FillHistos(){
-
-    
     int    indexTrigInfo11(0);
+
+    //fill the histograms
     for (size_t i=0; i<_trigAll.size(); ++i ){
-      sumHist_._hTrigInfo  [0]->GetXaxis()->SetBinLabel(i+1, _trigAll[i].label.c_str());
-      sumHist_._h2DTrigInfo[0]->GetXaxis()->SetBinLabel(i+1, _trigAll[i].label.c_str());
+      _sumHist._hTrigInfo  [0]->GetXaxis()->SetBinLabel(i+1, _trigAll[i].label.c_str());
+      _sumHist._h2DTrigInfo[0]->GetXaxis()->SetBinLabel(i+1, _trigAll[i].label.c_str());
 
       if (_trigAll[i].counts > 0) {
-	    sumHist_._hTrigInfo[0]->SetBinContent(i+1, _nProcess/_trigAll[i].counts);
-	    for (size_t j=0; j<_trigAll.size(); ++j ){
-	      sumHist_._h2DTrigInfo[0]->GetYaxis()->SetBinLabel(j+1, _trigAll[j].label.c_str());
-	    }
+	_sumHist._hTrigInfo[0]->SetBinContent(i+1, _nProcess/_trigAll[i].counts);
+	for (size_t j=0; j<_trigAll.size(); ++j ){
+	  _sumHist._h2DTrigInfo[0]->GetYaxis()->SetBinLabel(j+1, _trigAll[j].label.c_str());
+	}
       }
-      std::cout<<_trigTrack[i].counts<<std::endl;
-      std::cout<<_trigCaloOnly[i].counts<<std::endl;
 
+      _sumHist._hTrigInfo[1]->GetXaxis()->SetBinLabel(i+1, _trigTrack[i].label.c_str());
+      if (_trigTrack[i].counts > 0) _sumHist._hTrigInfo[1]->SetBinContent(i+1, _nProcess/_trigTrack[i].counts);
 
-      sumHist_._hTrigInfo[1]->GetXaxis()->SetBinLabel(i+1, _trigTrack[i].label.c_str());
-      if (_trigTrack[i].counts > 0) sumHist_._hTrigInfo[1]->SetBinContent(i+1, _nProcess/_trigTrack[i].counts);
-      
-      sumHist_._hTrigInfo[2]->GetXaxis()->SetBinLabel(i+1, _trigCaloOnly[i].label.c_str());
-      if (_trigCaloOnly[i].counts > 0) sumHist_._hTrigInfo[2]->SetBinContent(i+1, _nProcess/_trigCaloOnly[i].counts);
+      _sumHist._hTrigInfo[2]->GetXaxis()->SetBinLabel(i+1, _trigCaloOnly[i].label.c_str());
+      if (_trigCaloOnly[i].counts > 0) _sumHist._hTrigInfo[2]->SetBinContent(i+1, _nProcess/_trigCaloOnly[i].counts);
 
-      sumHist_._hTrigInfo[3]->GetXaxis()->SetBinLabel(i+1, _trigEvtPS[i].label.c_str());
-      if (_trigEvtPS[i].counts > 0) sumHist_._hTrigInfo[3]->SetBinContent(i+1, _trigEvtPS[i].counts);
+      _sumHist._hTrigInfo[3]->GetXaxis()->SetBinLabel(i+1, _trigEvtPS[i].label.c_str());
+      if (_trigEvtPS[i].counts > 0) _sumHist._hTrigInfo[3]->SetBinContent(i+1, _trigEvtPS[i].counts);
 
-      sumHist_._hTrigInfo[4]->GetXaxis()->SetBinLabel(i+1, _trigHelix[i].label.c_str());
-      if (_trigHelix[i].counts > 0) sumHist_._hTrigInfo[4]->SetBinContent(i+1, _trigHelix[i].counts);
+      _sumHist._hTrigInfo[4]->GetXaxis()->SetBinLabel(i+1, _trigHelix[i].label.c_str());
+      if (_trigHelix[i].counts > 0) _sumHist._hTrigInfo[4]->SetBinContent(i+1, _trigHelix[i].counts);
 
-      sumHist_._hTrigInfo[5]->GetXaxis()->SetBinLabel(i+1, _trigCaloCalib[i].label.c_str());
-      if (_trigCaloCalib[i].counts > 0) sumHist_._hTrigInfo[5]->SetBinContent(i+1, _trigCaloCalib[i].counts);
+      _sumHist._hTrigInfo[5]->GetXaxis()->SetBinLabel(i+1, _trigCaloCalib[i].label.c_str());
+      if (_trigCaloCalib[i].counts > 0) _sumHist._hTrigInfo[5]->SetBinContent(i+1, _trigCaloCalib[i].counts);
 
       if (_trigFinal[i].counts > 0) {
-	    sumHist_._hTrigInfo  [6]->GetXaxis()->SetBinLabel(i+1, _trigFinal[i].label.c_str());
-	    sumHist_._hTrigInfo  [6]->SetBinContent(i+1, _nProcess/_trigFinal[i].counts);
+	_sumHist._hTrigInfo  [6]->GetXaxis()->SetBinLabel(i+1, _trigFinal[i].label.c_str());
+	_sumHist._hTrigInfo  [6]->SetBinContent(i+1, _nProcess/_trigFinal[i].counts);
       }
 
-    //fill  the histograms that shows how many events were found exclusively by each trigger path
-    sumHist_._hTrigInfo  [10]->GetXaxis()->SetBinLabel(i+1, _trigAll[i].label.c_str());
-    double    content_trigInfo11 = sumHist_._hTrigInfo [10]->GetBinContent(i+1);
-    if (content_trigInfo11>0){
-        sumHist_._hTrigInfo  [11]->GetXaxis()->SetBinLabel(indexTrigInfo11 +1, _trigAll[i].label.c_str());
-        sumHist_._hTrigInfo  [11]->SetBinContent(indexTrigInfo11 +1, content_trigInfo11);
-        ++indexTrigInfo11;
-    }
+      //fill  the histograms that shows how many events were found exclusively by each trigger path
+      _sumHist._hTrigInfo  [10]->GetXaxis()->SetBinLabel(i+1, _trigAll[i].label.c_str());
+      double    content_trigInfo11 = _sumHist._hTrigInfo [10]->GetBinContent(i+1);
+      if (content_trigInfo11>0){
+	_sumHist._hTrigInfo  [11]->GetXaxis()->SetBinLabel(indexTrigInfo11 +1, _trigAll[i].label.c_str());
+	_sumHist._hTrigInfo  [11]->SetBinContent(indexTrigInfo11 +1, content_trigInfo11);
+	++indexTrigInfo11;
+      }
 
     }
 
-    int                nbinsx = sumHist_._h2DTrigInfo[0]->GetNbinsX();
-    int                nbinsy = sumHist_._h2DTrigInfo[0]->GetNbinsY();
+    //now let's filter the 2D correlation histogram with only those that actually triggered at least one event
+    int                nbinsx = _sumHist._h2DTrigInfo[0]->GetNbinsX();
+    int                nbinsy = _sumHist._h2DTrigInfo[0]->GetNbinsY();
     std::vector<int>   binsToSkip;
 
     for (int i=0; i<nbinsx; ++i){
-        bool used(false);
+      bool used(false);
 
-        for (int j=0; j<nbinsy; ++j){
-            if (sumHist_._h2DTrigInfo[0]->GetBinContent(i+1, j+1) > 0) {
-                used = true;
-                break;
-            }
-        }
-        if (!used) binsToSkip.push_back(i);
+      for (int j=0; j<nbinsy; ++j){
+	if (_sumHist._h2DTrigInfo[0]->GetBinContent(i+1, j+1) > 0) {
+	  used = true;
+	  break;
+	}
+      }
+      if (!used) binsToSkip.push_back(i);
     }
 
     int   index_x(0);
     for (int i=0; i<nbinsx; ++i){
-        int    counts = std::count(binsToSkip.begin(), binsToSkip.end(), i);
-        if (counts >= 1) continue;
-        sumHist_._h2DTrigInfo[1]->GetXaxis()->SetBinLabel(index_x+1, _trigAll[i].label.c_str());
+      int    counts = std::count(binsToSkip.begin(), binsToSkip.end(), i);
+      if (counts >= 1)       continue;
+      //set the label
+      _sumHist._h2DTrigInfo[1]->GetXaxis()->SetBinLabel(index_x+1, _trigAll[i].label.c_str());
 
-        int    index_y(0);
+      int    index_y(0);
 
-        for (int j=0; j<nbinsy; ++j){
-            counts = std::count(binsToSkip.begin(), binsToSkip.end(), j);
-            if (counts >= 1)continue;
-            double  content =  sumHist_._h2DTrigInfo[0]->GetBinContent(i+1, j+1);
-            sumHist_._h2DTrigInfo[1]->SetBinContent(index_x+1, index_y+1, content);
+      for (int j=0; j<nbinsy; ++j){
+	counts = std::count(binsToSkip.begin(), binsToSkip.end(), j);
+	if (counts >= 1)       continue;
+	double  content =  _sumHist._h2DTrigInfo[0]->GetBinContent(i+1, j+1);
+	_sumHist._h2DTrigInfo[1]->SetBinContent(index_x+1, index_y+1, content);
+	
+	//set the label
+	if (index_x == 0){
+	  _sumHist._h2DTrigInfo[1]->GetYaxis()->SetBinLabel(index_y+1, _trigAll[j].label.c_str());
+	}
 
-            //set the label
-            if (index_x == 0){
-            sumHist_._h2DTrigInfo[1]->GetYaxis()->SetBinLabel(index_y+1, _trigAll[j].label.c_str());
-            }
-
-	        ++index_y;
+	++index_y;
       }
-    ++index_x;
+      ++index_x;
     }
     
+    // now evaluate the bandwidth
+    // NOTE: "evalTriggerrate" re-order the vectors _trigFinal
     evalTriggerRate();
-    //WRITE ROOT FILE 
-    //if(writeOutput_)    tfs->write(); //tfs = art TFileService
-    //STREAM - another handle, do stream ing as parameter - stream histograms
-    //if (doStreaming_){ rootNetClient->write(); }
   }
+  
 
 void   ots::TriggerRates::evalTriggerRate(){
     
@@ -301,24 +895,190 @@ void   ots::TriggerRates::evalTriggerRate(){
 
         double  eff   = nEvents/_nProcess;
         double  rate  = mean_mb_rate*eff;
-        sumHist_._hTrigBDW[0]->GetXaxis()->SetBinLabel(index+1, _trigFinal[i].label.c_str());
-        sumHist_._hTrigBDW[1]->GetXaxis()->SetBinLabel(index+1, _trigFinal[i].label.c_str());
-        sumHist_._hTrigBDW[0]->SetBinContent(index+1, rate);
+        _sumHist._hTrigBDW[0]->GetXaxis()->SetBinLabel(index+1, _trigFinal[i].label.c_str());
+        _sumHist._hTrigBDW[1]->GetXaxis()->SetBinLabel(index+1, _trigFinal[i].label.c_str());
+        _sumHist._hTrigBDW[0]->SetBinContent(index+1, rate);
 
         if (isFirst) {
-            sumHist_._hTrigBDW[1]->SetBinContent(index+1, rate);
+            _sumHist._hTrigBDW[1]->SetBinContent(index+1, rate);
           	isFirst = false;
         }else{
 	        double    nCorrelated(0);
 	        //findCorrelatedEvents(labels_by_rate, nCorrelated);
 
-	        rate = sumHist_._hTrigBDW[1]->GetBinContent(index) + (nEvents-nCorrelated)/(double)_nProcess*mean_mb_rate;
-              	sumHist_._hTrigBDW[1]->SetBinContent(index+1, rate);
+	        rate = _sumHist._hTrigBDW[1]->GetBinContent(index) + (nEvents-nCorrelated)/(double)_nProcess*mean_mb_rate;
+              	_sumHist._hTrigBDW[1]->SetBinContent(index+1, rate);
       }
 
       ++index;
     }
 
+  }
+
+void ots::TriggerRates::findCorrelatedEvents(std::vector<string>& VecLabels, double &NCorrelated){
+    
+    NCorrelated = 0;
+    
+    const char* label_ref = VecLabels.at(VecLabels.size()-1).c_str();
+
+    int        nLabels = VecLabels.size() -1;
+    int        nbins   = _sumHist._h2DTrigInfo[1]->GetNbinsX();
+    for(int i=0; i<nbins; ++i){
+      const char* label = _sumHist._h2DTrigInfo[1]->GetXaxis()->GetBinLabel(i+1);
+      if (std::strcmp(label_ref, label) != 0)      continue;
+      
+      for (int k=0; k<nLabels; ++k){
+       	label_ref = VecLabels.at(k).c_str();
+	    for (int j=0; j<nbins; ++j){
+	      if (j == i)      break;
+	      label =   _sumHist._h2DTrigInfo[1]->GetYaxis()->GetBinLabel(j+1);
+	      if (std::strcmp(label_ref, label) != 0)        continue;
+	      NCorrelated += _sumHist._h2DTrigInfo[1]->GetBinContent(i+1, j+1);
+	    }
+      }
+      break;
+    }
+
+  }
+
+ void ots::TriggerRates::beginRun(const art::Run & run){
+    mu2e::GeomHandle<mu2e::BFieldManager> bfmgr;
+    mu2e::GeomHandle<mu2e::DetectorSystem> det;
+    CLHEP::Hep3Vector vpoint_mu2e = det->toMu2e(CLHEP::Hep3Vector(0.0,0.0,0.0));
+    _bz0 = bfmgr->getBField(vpoint_mu2e).z();
+
+    mu2e::GeomHandle<mu2e::Tracker> th;
+    _tracker  = th.get();
+  }
+
+  void ots::TriggerRates::endSubRun(const art::SubRun& sr){}
+
+  void ots::TriggerRates::findTrigIndex(std::vector<trigInfo_> &Vec, std::string& ModuleLabel, int &Index){
+   
+    Index = 0;
+    for (size_t i=0; i<Vec.size(); ++i){
+      if (Vec[i].label == ModuleLabel) { 
+	    Index = i;
+	    break;
+      }else if (Vec[i].label != ""){
+	       Index = i+1;
+      }
+    }
+  }
+
+
+void   ots::TriggerRates::fillTrackTrigInfo(int TrkTrigIndex, const mu2e::KalSeed *KSeed, trackInfoHist_   &Hist){
+    mu2e::GlobalConstantsHandle<mu2e::ParticleDataTable> pdt;
+    mu2e::HelixTool helTool(KSeed->helix().get(), _tracker);
+
+    int                nsh = (int)KSeed->hits().size();
+    mu2e::KalSegment const& fseg = KSeed->segments().front();
+
+    double     ndof  = std::max(1.0,nsh - 5.0);
+    double     p     = fseg.mom();
+    double     chi2d = KSeed->chisquared()/ndof;
+    double     pt    = p*std::cos(std::atan(fseg.helix().tanDip()));
+    double     d0    = fseg.helix().d0();
+    double     clE(-1.);
+    if (KSeed->caloCluster()) clE = KSeed->caloCluster()->energyDep();
+    double     nLoops    = helTool.nLoops();
+
+    Hist._hTrkInfo[TrkTrigIndex][0]->Fill(p);
+    Hist._hTrkInfo[TrkTrigIndex][1]->Fill(pt);
+    Hist._hTrkInfo[TrkTrigIndex][2]->Fill(nsh);
+    Hist._hTrkInfo[TrkTrigIndex][3]->Fill(d0);
+    Hist._hTrkInfo[TrkTrigIndex][4]->Fill(chi2d);
+    Hist._hTrkInfo[TrkTrigIndex][5]->Fill(clE);
+    Hist._hTrkInfo[TrkTrigIndex][6]->Fill(nLoops);
+
+    //add the MC info if available
+    if (_mcdigis) {
+      const mu2e::ComboHit*    hit(0), *hit_0(0);
+      hit_0     = &_chcol->at(0);
+
+      int                      loc(-1);
+      std::vector<int>         hits_simp_id, hits_simp_index, hits_simp_z;
+
+      for (int j=0; j<nsh; ++j){
+	int  hitIndex  = int(KSeed->hits().at(j).index());
+	hit            = &_chcol->at(hitIndex);
+	loc            = hit - hit_0;
+	const mu2e::StrawGasStep* step(0);
+	const mu2e::StrawDigiMC* sdmc = &_mcdigis->at(loc);
+	if (sdmc->wireEndTime(mu2e::StrawEnd::cal) < sdmc->wireEndTime(mu2e::StrawEnd::hv)) {
+	  step = sdmc->strawGasStep(mu2e::StrawEnd::cal).get();
+	}
+	else {
+	  step = sdmc->strawGasStep(mu2e::StrawEnd::hv ).get();
+	}
+	
+	if (step) {
+	  art::Ptr<mu2e::SimParticle> const& simptr = step->simParticle(); 
+	  int sim_id        = simptr->id().asInt();
+
+	  hits_simp_id.push_back   (sim_id); 
+	  hits_simp_index.push_back(loc);
+	  hits_simp_z.push_back(step->position().z());
+	}
+      }//end loop over the hits
+    
+      int     max(0), mostvalueindex(-1);//, mostvalue= hits_simp_id[0];
+      float   dz_most(1e4);
+      for (int k=0; k<(int)hits_simp_id.size(); ++k){
+	int co = (int)std::count(hits_simp_id.begin(), hits_simp_id.end(), hits_simp_id[k]);
+	if ( (co>0) &&  (co>max)) {
+	  float  dz      = std::fabs(hits_simp_z[k]);
+	  if (dz < dz_most){
+	    dz_most        = dz;
+	    max            = co;
+	    //	    mostvalue      = hits_simp_id[k];
+	    mostvalueindex = hits_simp_index[k];
+	  }
+	}
+      }
+    
+      //finally, get the info of the first StrawDigi
+      const mu2e::StrawDigiMC* sdmc = &_mcdigis->at(mostvalueindex);
+	art::Ptr<mu2e::SimParticle> const& simptr = sdmc->earlyStrawGasStep()->simParticle();
+	int     pdg   = simptr->pdgId();
+	art::Ptr<mu2e::SimParticle> mother = simptr;
+
+	while(mother->hasParent()) 
+	  mother = mother->parent();
+	//sim = mother.operator->();
+	int      pdgM   = mother->pdgId();
+	double   pXMC   = simptr->startMomentum().x();
+	double   pYMC   = simptr->startMomentum().y();
+	double   pZMC   = simptr->startMomentum().z();
+	double   mass(-1.);//  = part->Mass();
+	double   energy(-1.);// = sqrt(px*px+py*py+pz*pz+mass*mass);
+	mass   = pdt->particle(pdg).ref().mass();
+	energy = sqrt(pXMC*pXMC+pYMC*pYMC+pZMC*pZMC+mass*mass);
+      
+	double   pTMC   = sqrt(pXMC*pXMC + pYMC*pYMC);
+	double   pMC    = sqrt(pZMC*pZMC + pTMC*pTMC);
+      
+	const CLHEP::Hep3Vector* sp = &simptr->startPosition();
+	XYZVec origin;
+	origin.SetX(sp->x()+3904);
+	origin.SetY(sp->y());
+	origin.SetZ(sp->z());
+	double origin_r = sqrt(origin.x()*origin.x() + origin.y()*origin.y());
+	double pz     = sqrt(p*p - pt*pt);
+
+	//now fill the MC histograms
+	Hist._hTrkInfo[TrkTrigIndex][10]->Fill(pMC);
+	Hist._hTrkInfo[TrkTrigIndex][11]->Fill(pTMC);
+	Hist._hTrkInfo[TrkTrigIndex][12]->Fill(pZMC);
+	Hist._hTrkInfo[TrkTrigIndex][13]->Fill(p - pMC);
+	Hist._hTrkInfo[TrkTrigIndex][14]->Fill(pt - pTMC);
+	Hist._hTrkInfo[TrkTrigIndex][15]->Fill(pz - pZMC);
+	Hist._hTrkInfo[TrkTrigIndex][16]->Fill(pdg);
+	Hist._hTrkInfo[TrkTrigIndex][17]->Fill(origin.z());
+	Hist._hTrkInfo[TrkTrigIndex][18]->Fill(origin_r);
+	Hist._hTrkInfo[TrkTrigIndex][19]->Fill(pdgM);
+	Hist._hTrkInfo[TrkTrigIndex][20]->Fill(energy);
+    }
   }
 
 DEFINE_ART_MODULE(ots::TriggerRates)
