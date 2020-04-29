@@ -5,6 +5,11 @@ simple_plugin(DQMMu2eHistoConsumer "processor"
     WorkLoopManager
     ${CETLIB}
     MF_MessageLogger
+    art_Utilities
+    art_root_io
+    art_root_io_tfile_support
+    art_root_io_TFileService_service
+ 
 )
 
 install_headers()

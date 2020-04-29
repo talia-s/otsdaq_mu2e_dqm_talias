@@ -2,6 +2,7 @@
 #include "otsdaq/MessageFacility/MessageFacility.h"
 #include "otsdaq/Macros/CoutMacros.h"
 #include "otsdaq/Macros/ProcessorPluginMacros.h"
+#include <TBufferFile.h>
 #include <chrono>
 #include <thread>
 #include <TDirectory.h>
@@ -36,16 +37,11 @@ using namespace ots;
 			DQMHistosBase::openFile(filePath_ + "/" + radixFileName_ + "_Run" + runNumber + ".root");//filePath_ + radixFileName_
 			DQMHistosBase::myDirectory_ = DQMHistosBase::theFile_->mkdir("Mu2eHistos", "Mu2eHistos");
 			DQMHistosBase::myDirectory_->cd();
-			DQMHistosBase::myDirectory_->mkdir("ExtraDir", "ExtraDir");
-			hGauss_ = new TH1F("Gaussian", "Gaussian", 100, 0, 100);
-			testTree_ = new TTree("tree", "tree");
-			int value;
-			testTree_->Branch("Value", &value);
-			value = 7;
-			testTree_->Fill();
-			value = 8;
-			testTree_->Fill();
+			
 
+            testHistos_.BookHistos(DQMHistosBase::myDirectory_); //pass directory 
+            //DQMHistosBase::myDirectory_->mkdir("TestingHistos", "TestingHistos");
+            //TH1F *_FirstHist = new TH1F("test", "test", 1000, 0,110);
 			std::cout << __PRETTY_FUNCTION__ << "Starting!" << std::endl;
 			DataConsumer::startProcessingData(runNumber);
 			std::cout << __PRETTY_FUNCTION__ << "Started!" << std::endl;
@@ -91,16 +87,34 @@ using namespace ots;
 	void DQMMu2eHistoConsumer::fastRead(void)
 	{
 		// std::cout<<"[In DQMMu2eHistoConsumer () ] FastRead ..."<<std::endl;
-		if(DataConsumer::read(dataP_, headerP_) < 0)
+		if(DataConsumer::read(dataP_, headerP_) < 0)//is there something in the buffer?
 		{
-			std::this_thread::sleep_for(std::chrono::milliseconds(5000));//10
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));//10
 			return;
 		}
-		double value = 0;
-		memcpy(&value, &dataP_->at(0), sizeof(double));
-	//	std::cout << __PRETTY_FUNCTION__ << " Value: " << value << std::endl;
-		// std::cout<<"[In DQMMu2eHistoConsumer () ] Filling ..."<<std::endl;
-		hGauss_->Fill(value);
+		
+	    TBufferFile message(TBuffer::kWrite);//prepare message
+	    message.WriteBuf(dataP_->data(), dataP_->size()); //copy buffer
+	    message.SetReadMode();
+
+	    message.SetBufferOffset(2 * sizeof(UInt_t));//move pointer
+	    TClass *objectClass = TClass::Load(message);//load and find class
+	    message.SetBufferOffset(0);//rewind buffer
+	    __CFG_COUT__ << "Class name: " << objectClass->GetName() << std::endl;
+
+	    TObject *readObject = nullptr;
+	    if (objectClass->InheritsFrom(TH1::Class()))
+	    {
+		    __CFG_COUT__ << "TH1 class: " << objectClass->GetName() << std::endl;
+		   
+		    readObject = (TH1*) message.ReadObject(objectClass);///read object
+		    TH1* object = (TH1*)DQMHistosBase::myDirectory_->FindObjectAny(readObject->GetName());//find in memory
+		    object->Reset();
+		    object->Add((TH1*)readObject);//add the filled copy
+		  
+		    __CFG_COUT__ << "Histo name: " << testHistos_.Test._FirstHist->GetName() << std::endl;
+		    
+	    }
 		DataConsumer::setReadSubBuffer<std::string, std::map<std::string, std::string>>();
 	}
 

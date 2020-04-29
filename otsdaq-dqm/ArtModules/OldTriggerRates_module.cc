@@ -1,4 +1,4 @@
-//Author: S Middleton
+/*//Author: S Middleton
 //Date: 2020
 //Purpose: prototype Analyzer fir DQM trigger rates. Based on Offline module Trigger/srs/ots::TriggerRates. Much of the code was copied over from that module but has been adapted for Online vicualization.
 
@@ -632,7 +632,7 @@ void ots::TriggerRates::analyze(art::Event const& event)
     for (unsigned int i=0; i< _trigPaths.size(); ++i){
       string&path = _trigPaths.at(i);
       if (trigNavig.accepted(path)) {
-	    std::vector<std::string>      moduleNames = trigNavig.triggerModules(path);//BREAKS HERE
+	       std::vector<std::string>      moduleNames = trigNavig.triggerModules(path);
 
 	    for (size_t j=0; j<moduleNames.size(); ++j){
 	      std::string  moduleLabel = moduleNames[j];
@@ -963,7 +963,7 @@ void ots::TriggerRates::findCorrelatedEvents(std::vector<string>& VecLabels, dou
 
 
 void   ots::TriggerRates::fillTrackTrigInfo(int TrkTrigIndex, const mu2e::KalSeed *KSeed, trackInfoHist_   &Hist){
-    /*mu2e::GlobalConstantsHandle<mu2e::ParticleDataTable> pdt;
+    mu2e::GlobalConstantsHandle<mu2e::ParticleDataTable> pdt;
     mu2e::HelixTool helTool(KSeed->helix().get(), _tracker);
 
     int                nsh = (int)KSeed->hits().size();
@@ -976,7 +976,7 @@ void   ots::TriggerRates::fillTrackTrigInfo(int TrkTrigIndex, const mu2e::KalSee
     double     d0    = fseg.helix().d0();
     double     clE(-1.);
     if (KSeed->caloCluster()) clE = KSeed->caloCluster()->energyDep();
-    double     nLoops    = helTool.nLoops();*/
+    double     nLoops    = helTool.nLoops();
 
     Hist._hTrkInfo[TrkTrigIndex][0]->Fill(p);
     Hist._hTrkInfo[TrkTrigIndex][1]->Fill(pt);
@@ -985,7 +985,7 @@ void   ots::TriggerRates::fillTrackTrigInfo(int TrkTrigIndex, const mu2e::KalSee
     Hist._hTrkInfo[TrkTrigIndex][4]->Fill(chi2d);
     Hist._hTrkInfo[TrkTrigIndex][5]->Fill(clE);
     Hist._hTrkInfo[TrkTrigIndex][6]->Fill(nLoops);
-/*
+
     //add the MC info if available
     if (_mcdigis) {
       const mu2e::ComboHit*    hit(0), *hit_0(0);
@@ -1060,7 +1060,7 @@ void   ots::TriggerRates::fillTrackTrigInfo(int TrkTrigIndex, const mu2e::KalSee
 	origin.SetZ(sp->z());
 	double origin_r = sqrt(origin.x()*origin.x() + origin.y()*origin.y());
 	double pz     = sqrt(p*p - pt*pt);
-*/
+
 	//now fill the MC histograms
 	Hist._hTrkInfo[TrkTrigIndex][10]->Fill(pMC);
 	Hist._hTrkInfo[TrkTrigIndex][11]->Fill(pTMC);
@@ -1089,7 +1089,7 @@ void     ots::TriggerRates::fillHelixTrigInfoAdd(int HelTrigIndex  , int MCMothe
   }
 
 void   ots::TriggerRates::fillHelixTrigInfo(int HelTrigIndex, const mu2e::HelixSeed*HSeed, helixInfoHist_  &Hist){
-    /*mu2e::GlobalConstantsHandle<mu2e::ParticleDataTable> pdt;
+    mu2e::GlobalConstantsHandle<mu2e::ParticleDataTable> pdt;
     mu2e::HelixTool helTool(HSeed, _tracker);
 
     int        nch = (int)HSeed->hits().size();
@@ -1107,7 +1107,7 @@ void   ots::TriggerRates::fillHelixTrigInfo(int HelTrigIndex, const mu2e::HelixS
     double     clE(-1.);
     double     lambda    = fabs(HSeed->helix().lambda());
     if (HSeed->caloCluster()) clE = HSeed->caloCluster()->energyDep();
-    double     nLoops    = helTool.nLoops();*/
+    double     nLoops    = helTool.nLoops();
 
     Hist._hHelInfo[HelTrigIndex][0]->Fill(p);
     Hist._hHelInfo[HelTrigIndex][1]->Fill(pt);
@@ -1122,7 +1122,6 @@ void   ots::TriggerRates::fillHelixTrigInfo(int HelTrigIndex, const mu2e::HelixS
 
      //add the MC info if available
     if (_mcdigis) {
-/*
       //      const mu2e::ComboHit*    hit(0);
       std::vector<int>         hits_simp_id, hits_simp_index, hits_simp_z;
 
@@ -1230,7 +1229,7 @@ void   ots::TriggerRates::fillHelixTrigInfo(int HelTrigIndex, const mu2e::HelixS
 	double origin_r = sqrt(origin.x()*origin.x() + origin.y()*origin.y());
 	// trackSeed->fOrigin1.SetXYZT(sp->x(),sp->y(),sp->z(),simptr->startGlobalTime());
 	double pz     = sqrt(p*p - pt*pt);
-*/
+
 	//now fill the MC histograms
 	Hist._hHelInfo[HelTrigIndex][10]->Fill(pMC);	   
 	Hist._hHelInfo[HelTrigIndex][11]->Fill(pTMC);	   
@@ -1241,7 +1240,8 @@ void   ots::TriggerRates::fillHelixTrigInfo(int HelTrigIndex, const mu2e::HelixS
 	Hist._hHelInfo[HelTrigIndex][16]->Fill(pdg);	   
 	Hist._hHelInfo[HelTrigIndex][17]->Fill(origin.z());
 	Hist._hHelInfo[HelTrigIndex][18]->Fill(origin_r);  
-	Hist._hHelInfo[HelTrigIndex][19]->Fill(pdgM);      /*
+	Hist._hHelInfo[HelTrigIndex][19]->Fill(pdgM);      
+
 	//fill the "add" info
 	if (indexMother>0){
 	  MCInfo tmpMCInfo;
@@ -1258,7 +1258,7 @@ void   ots::TriggerRates::fillHelixTrigInfo(int HelTrigIndex, const mu2e::HelixS
 	  tmpMCInfo.lambda  = lambda;      
 	  tmpMCInfo.d0    = d0;      
 	  tmpMCInfo.p     = p;      
-	  */
+	  
 
 	  fillHelixTrigInfoAdd(HelTrigIndex, indexMother, HSeed, Hist, tmpMCInfo);
 	}
@@ -1293,4 +1293,4 @@ void   ots::TriggerRates::fillHelixTrigInfo(int HelTrigIndex, const mu2e::HelixS
   }
 
 
-DEFINE_ART_MODULE(ots::TriggerRates)
+DEFINE_ART_MODULE(ots::TriggerRates)*/

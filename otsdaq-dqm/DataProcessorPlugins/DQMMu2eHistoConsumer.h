@@ -3,6 +3,7 @@
 
 #include "otsdaq/DataManager/DQMHistosConsumerBase.h"
 #include "otsdaq/Configurable/Configurable.h"
+#include "otsdaq_mu2e_dqm/otsdaq-dqm/ArtModules/ProtoTypeHistos.h"
 #include <string>
 
 class TFile;
@@ -40,6 +41,7 @@ namespace ots
 
 			TH1F*                              hGauss_;//TODO need to add our own class here
 			TTree*                             testTree_;
+            ProtoTypeHistos                    testHistos_;
 	};
 }
 
