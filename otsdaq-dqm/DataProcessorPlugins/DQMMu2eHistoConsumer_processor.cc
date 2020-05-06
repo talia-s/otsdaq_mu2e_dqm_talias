@@ -34,14 +34,12 @@ using namespace ots;
 	void DQMMu2eHistoConsumer::startProcessingData(std::string runNumber)
 		{
 		  std::cout << __PRETTY_FUNCTION__ << filePath_ + "/" + radixFileName_ + "_Run" + runNumber + ".root" << std::endl;
-			DQMHistosBase::openFile(filePath_ + "/" + radixFileName_ + "_Run" + runNumber + ".root");//filePath_ + radixFileName_
+			DQMHistosBase::openFile(filePath_ + "/" + radixFileName_ + "_Run" + runNumber + ".root");
 			DQMHistosBase::myDirectory_ = DQMHistosBase::theFile_->mkdir("Mu2eHistos", "Mu2eHistos");
 			DQMHistosBase::myDirectory_->cd();
 			
 
             testHistos_.BookHistos(DQMHistosBase::myDirectory_); //pass directory 
-            //DQMHistosBase::myDirectory_->mkdir("TestingHistos", "TestingHistos");
-            //TH1F *_FirstHist = new TH1F("test", "test", 1000, 0,110);
 			std::cout << __PRETTY_FUNCTION__ << "Starting!" << std::endl;
 			DataConsumer::startProcessingData(runNumber);
 			std::cout << __PRETTY_FUNCTION__ << "Started!" << std::endl;
@@ -86,7 +84,7 @@ using namespace ots;
 //========================================================================================================================
 	void DQMMu2eHistoConsumer::fastRead(void)
 	{
-		// std::cout<<"[In DQMMu2eHistoConsumer () ] FastRead ..."<<std::endl;
+		
 		if(DataConsumer::read(dataP_, headerP_) < 0)//is there something in the buffer?
 		{
 			std::this_thread::sleep_for(std::chrono::milliseconds(10));//10

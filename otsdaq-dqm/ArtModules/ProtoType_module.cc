@@ -132,17 +132,8 @@ namespace ots
        
         const art::Event*                  _event;
         ProtoTypeHistos *histos = new ProtoTypeHistos("test");
-        TCPPublishServer *tcp = new TCPPublishServer(10000);
+        TCPPublishServer *tcp ;
         
-        void fastRead(void);
-	    void slowRead(void);
-	
-	    std::string*                       dataP_;
-	    std::map<std::string,std::string>* headerP_;
-
-	    bool                               saveFile_; //yes or no
-	    std::string                        filePath_;
-	    std::string                        radixFileName_;
     };
 }
 
@@ -157,7 +148,8 @@ ots::ProtoType::ProtoType(fhicl::ParameterSet const& pset)
     _sdTag         (pset.get<art::InputTag>("strawDigiCollection"  , "makeSD")),
     _duty_cycle    (pset.get<float> ("dutyCycle", 1.)),
     _processName   (pset.get<string> ("processName", "globalTrigger")),
-    _nProcess      (pset.get<float> ("nEventsProcessed", 1.))
+    _nProcess      (pset.get<float> ("nEventsProcessed", 1.)),
+tcp(new TCPPublishServer(pset.get<int>("listenPort", 6000)))
   {
     TLOG_INFO("ProtoType") << "TriggerRate Plotter construction is beginning " << TLOG_ENDL;
      
