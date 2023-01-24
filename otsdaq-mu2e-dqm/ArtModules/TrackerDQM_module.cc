@@ -10,8 +10,8 @@
 #include <TBufferFile.h>
 #include <TH1F.h>
 
-#include "otsdaq-mu2e-dqm-tracker/ArtModules/TrackerDQMHistoContainer.h"
-#include "otsdaq-mu2e-dqm-tracker/ArtModules/TrackerDQM.h"
+#include "otsdaq-mu2e-dqm/ArtModules/TrackerDQMHistoContainer.h"
+#include "otsdaq-mu2e-dqm/ArtModules/TrackerDQM.h"
 #include "otsdaq/Macros/CoutMacros.h"
 #include "otsdaq/Macros/ProcessorPluginMacros.h"
 #include "otsdaq/MessageFacility/MessageFacility.h"
