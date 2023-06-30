@@ -5,10 +5,15 @@
 #include <TH1F.h>
 
 #include <Offline/RecoDataProducts/inc/StrawDigi.hh>
-#include <artdaq-core/Data/Fragment.hh>
-
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+#include "Offline/TrkHitReco/inc/PeakFit.hh"
+#pragma GCC diagnostic pop
 #include "Offline/DataProducts/inc/StrawId.hh"
 #include "Offline/DataProducts/inc/TrkTypes.hh"
+
+#include <artdaq-core/Data/Fragment.hh>
+
 #include "art/Framework/Core/EDAnalyzer.h"
 #include "art/Framework/Core/ModuleMacros.h"
 #include "art/Framework/Principal/Event.h"
@@ -41,6 +46,8 @@ class TrackerDQM : public art::EDAnalyzer {
                                  "histogram will be sent")};
     fhicl::Atom<std::string> moduleTag{Name("moduleTag"),
                                        Comment("Module tag name")};
+    fhicl::Atom<int> fittype { Name( "FitType"),
+	Comment("Waveform Fit Type")};
     fhicl::Sequence<std::string> histType{
         Name("histType"),
         Comment("This parameter determines which quantity is histogrammed")};
@@ -66,6 +73,7 @@ class TrackerDQM : public art::EDAnalyzer {
   int port_;
   std::string address_;
   std::string moduleTag_;
+  bool useADCWF_;
   std::vector<std::string> histType_;
   int freqDQM_, diagLevel_, evtCounter_;
   art::ServiceHandle<art::TFileService> tfs;
@@ -85,6 +93,7 @@ ots::TrackerDQM::TrackerDQM(Parameters const& conf)
       port_(conf().port()),
       address_(conf().address()),
       moduleTag_(conf().moduleTag()),
+      useADCWF_(conf().fittype() != mu2e::TrkHitReco::FitType::firmwarepmp ),    
       histType_(conf().histType()),
       freqDQM_(conf().freqDQM()),
       diagLevel_(conf().diag()),
@@ -164,7 +173,7 @@ void ots::TrackerDQM::analyze_tracker_(const mu2e::TrackerFragment& cc) {
     }
     auto hdr = block_data->GetHeader();
     if (hdr->GetPacketCount() > 0) {
-      auto trkDatas = cc.GetTrackerData(curBlockIdx);
+      auto trkDatas = cc.GetTrackerData(curBlockIdx, useADCWF_); 
       if (trkDatas.empty()) {
         mf::LogError("TrackerDQM")
             << "Error retrieving Tracker data from DataBlock " << curBlockIdx
