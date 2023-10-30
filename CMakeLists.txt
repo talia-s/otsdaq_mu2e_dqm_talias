@@ -18,7 +18,7 @@ cet_cmake_env()
 cet_set_compiler_flags(DIAGS VIGILANT
  WERROR
  NO_UNDEFINED
- EXTRA_FLAGS -pedantic -Wno-unused-parameter
+ EXTRA_FLAGS -pedantic -Wno-unused-parameter -Wno-ignored-qualifiers
  )
 
 #string(TOUPPER ${CMAKE_BUILD_TYPE} BTYPE_UC )
