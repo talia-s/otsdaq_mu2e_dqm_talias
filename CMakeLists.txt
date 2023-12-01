@@ -34,8 +34,9 @@ find_package(otsdaq_mu2e 1.02.00 REQUIRED)
 #find_package(art_root_io 1.10.01 REQUIRED)
 
 # Mu2e Offline Extra setup
-find_package(Offline REQUIRED)
+find_package(Offline v11_00_00 REQUIRED)
 include_directories($ENV{BTRK_INC} $ENV{KINKAL_INC})
+link_directories($ENV{BTRK_LIB} $ENV{KINKAL_LIB})
 
  # XDAQ Extra setup
  include_directories($ENV{XDAQ_INC} $ENV{XDAQ_INC}/linux)
