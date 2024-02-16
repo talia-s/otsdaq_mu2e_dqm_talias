@@ -19,7 +19,7 @@
 #include "art/Framework/Principal/Event.h"
 #include "art/Framework/Principal/Handle.h"
 #include "art_root_io/TFileService.h"
-#include "artdaq-core-mu2e/Data/TrackerFragment.hh"
+#include "artdaq-core-mu2e/Data/TrackerDataDecoder.hh"
 #include "artdaq-core-mu2e/Overlays/DTCEventFragment.hh"
 #include "artdaq-core-mu2e/Overlays/FragmentType.hh"
 #include "fhiclcpp/types/OptionalAtom.h"
@@ -83,7 +83,7 @@ class TrackerDQM : public art::EDAnalyzer {
   HistoSender* histSender_;
   bool doPedestalHist_, doPanelHist_;
   std::string moduleTag;
-  void analyze_tracker_(const mu2e::TrackerFragment& cc);
+  void analyze_tracker_(const mu2e::TrackerDataDecoder& cc);
 };
 }  // namespace ots
 
@@ -149,7 +149,7 @@ void ots::TrackerDQM::beginJob() {
 void ots::TrackerDQM::analyze(art::Event const& event) {
   ++evtCounter_;
 
-  auto fragmentHandles = event.getMany<std::vector<mu2e::TrackerFragment>>();
+  auto fragmentHandles = event.getMany<std::vector<mu2e::TrackerDataDecoder>>();
 
   for (const auto& handle : fragmentHandles) {
     if (!handle.isValid() || handle->empty()) {
@@ -162,7 +162,7 @@ void ots::TrackerDQM::analyze(art::Event const& event) {
   }
 }
 
-void ots::TrackerDQM::analyze_tracker_(const mu2e::TrackerFragment& cc) {
+void ots::TrackerDQM::analyze_tracker_(const mu2e::TrackerDataDecoder& cc) {
   for (size_t curBlockIdx = 0; curBlockIdx < cc.block_count();
        curBlockIdx++) {  // iterate over straws
     auto block_data = cc.dataAtBlockIndex(curBlockIdx);
