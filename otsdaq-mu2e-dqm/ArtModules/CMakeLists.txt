@@ -41,13 +41,18 @@ ROOT::RIO
 ROOT::Gui
 )
 
+# BTrk and KinKal have non-standard Find*.cmake...
+include_directories($ENV{KINKAL_INC})
+include_directories($ENV{BTRK_INC})
+link_directories($ENV{KINKAL_LIB})
+link_directories($ENV{BTRK_LIB})
 cet_build_plugin(TriggerDQM art::module LIBRARIES REG
 art_root_io::TFileService_service
 artdaq_core_mu2e::artdaq-core-mu2e_Data
 canvas::canvas
 otsdaq_mu2e::otsdaq-mu2e_ArtModules
 otsdaq::NetworkUtilities
-mu2e_Mu2eUtilities
+Offline::Mu2eUtilities
 ROOT::Hist
 ROOT::Tree
 ROOT::Core
