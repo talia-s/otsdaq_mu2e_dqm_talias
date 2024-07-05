@@ -62,7 +62,19 @@ ROOT::RIO
 ROOT::Gui
 )
 
-
+cet_build_plugin(ReadTriggerCounts art::module LIBRARIES REG
+art_root_io::TFileService_service
+artdaq_core_mu2e::artdaq-core-mu2e_Data
+	artdaq::ArtModules
+Offline::BFieldGeom
+      Offline::ConditionsService
+      Offline::DataProducts
+      Offline::GeometryService
+      Offline::GlobalConstantsService
+      Offline::Mu2eUtilities
+      Offline::RecoDataProducts
+      Offline::TrackerGeom
+	)
 
 
 
