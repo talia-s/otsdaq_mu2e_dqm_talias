@@ -229,18 +229,20 @@ namespace mu2e {
     //    for (unsigned i=0; i<trigResults->size(); ++i){
     bool hasNotPassedTrigger = true;
 
-    metricMan->sendMetric("TriggerCounts.TotalEvents", 1, "triggers", 2, artdaq::MetricMode::Accumulate);
+    metricMan->sendMetric("TriggerCounts.TotalEvents", 1, "events", 2, artdaq::MetricMode::Accumulate);
+    metricMan->sendMetric("TriggerCounts.TotalEventsCumulative", 1, "events", 2, artdaq::MetricMode::LastPoint);
     for (unsigned int i=0; i< trigNavig.getTrigPaths().size(); ++i){
       //      if (trigResults->accept(i)){
       std::string path   = trigNavig.getTrigPathName(i); //incorporates the reconstruction algorithm
       if(trigNavig.accepted(path)){
         triggerStreamCounts["TriggerCounts."+path] ++;
-        metricMan->sendMetric("TriggerCounts."+path, 1, "triggers", 2, artdaq::MetricMode::Accumulate);
-        metricMan->sendMetric("TriggerCounts.TotalEvents", 1, "triggers", 2, artdaq::MetricMode::Accumulate);
-        // Avoid double counting for total passed: has this event passed a trigger stream previously?
+        metricMan->sendMetric("TriggerCounts."+path, 1, "events", 2, artdaq::MetricMode::Accumulate);
+        metricMan->sendMetric("TriggerCounts."+path+"Cumulative", 1, "events", 2, artdaq::MetricMode::LastPoint);
+	// Avoid double counting for total passed: has this event passed a trigger stream previously?
         if(hasNotPassedTrigger){
           triggerStreamCounts["TriggerCounts.TotalAccepted"] ++;
-          metricMan->sendMetric("TriggerCounts.TotalPassedTrigger", 1, "triggers", 2, artdaq::MetricMode::Accumulate);
+          metricMan->sendMetric("TriggerCounts.TotalPassedTrigger", 1, "events", 2, artdaq::MetricMode::Accumulate);
+	  metricMan->sendMetric("TriggerCounts.TotalPassedTriggerCumulative", 1, "events", 2, artdaq::MetricMode::LastPoint);
           hasNotPassedTrigger = false;
         }
 
