@@ -56,9 +56,9 @@ services.ArtdaqSharedMemoryServiceInterface: {
      		level: 5 # Integer, verbosity level of metrics that will be recorded by this plugin.
 		metricPluginType: "graphite" # Must be "graphite" for the plugin to be loaded
 		reporting_interval: 1.0 # Double value, the frequency in seconds that the plugin sends out metrics
-		host: "mu2e-dcs-01"    # The hostname that the plugin will send metric data to
+		host: "localhost"    # The hostname that the plugin will send metric data to
 		port: 2003           # The port number for metric data
-		namespace: "talia." # The Graphite "namespace" for the metrics used. Namespaces are used for
+		namespace: "counts." # The Graphite "namespace" for the metrics used. Namespaces are used for
 	}
     }
 }
@@ -131,7 +131,6 @@ outputs : {
 
 
 services.TFileService.fileName : "globalTrigger_20240516_mdc2020r_NoPrimary_10nch.root"
-#services.TFileService.fileName : "/exp/mu2e/data/users/gianipez/hist/globalTrigger_debug.root"
 
 #physics.producers.TTHelixMergerDe.HelixFinders   : [ "TThelixFinder", "TThelixFinder"      ]
 #physics.producers.TTCalHelixMergerDe.HelixFinders: [ "TTCalHelixFinderDe", "TTCalHelixFinderDe" ]
