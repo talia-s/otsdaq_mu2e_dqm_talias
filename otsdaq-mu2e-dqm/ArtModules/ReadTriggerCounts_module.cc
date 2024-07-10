@@ -245,13 +245,6 @@ namespace mu2e {
 	  metricMan->sendMetric("TriggerCounts.TotalPassedTriggerCumulative", 1, "events", 2, artdaq::MetricMode::LastPoint);
           hasNotPassedTrigger = false;
         }
-
-        for (size_t j=0; j<_trigPaths.size(); ++j){
-          if (_trigPaths[j] == path){
-            //_sumHist._hTrigBits->Fill(j);
-            break;
-          }
-        }
       }
     }
 

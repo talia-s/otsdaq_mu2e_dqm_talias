@@ -51,6 +51,15 @@ services.ArtdaqSharedMemoryServiceInterface: {
 		fileName: "metrics.json"
 		reporting_interval: 1.0
 	}
+
+        graphite: { # Can be named anything.
+     		level: 5 # Integer, verbosity level of metrics that will be recorded by this plugin.
+		metricPluginType: "graphite" # Must be "graphite" for the plugin to be loaded
+		reporting_interval: 1.0 # Double value, the frequency in seconds that the plugin sends out metrics
+		host: "mu2e-dcs-01"    # The hostname that the plugin will send metric data to
+		port: 2003           # The port number for metric data
+		namespace: "talia." # The Graphite "namespace" for the metrics used. Namespaces are used for
+	}
     }
 }
 
@@ -127,13 +136,13 @@ services.TFileService.fileName : "globalTrigger_20240516_mdc2020r_NoPrimary_10nc
 #physics.producers.TTHelixMergerDe.HelixFinders   : [ "TThelixFinder", "TThelixFinder"      ]
 #physics.producers.TTCalHelixMergerDe.HelixFinders: [ "TTCalHelixFinderDe", "TTCalHelixFinderDe" ]
 
-physics.analyzers.readTriggerInfo.SelectEvents : [ tprDe_highP_stopTarg,
- 						   cprDe_highP_stopTarg,
- 						   apr_highP_stopTarg,
- 						   cprDe_lowP_stopTarg, 
- 						   tprDe_lowP_stopTarg, 
- 						   apr_lowP_stopTarg, 
- 						   tprHelixDe_ipa, tprHelixDe_ipa_phiScaled ] 
+#physics.analyzers.readTriggerInfo.SelectEvents : [ tprDe_highP_stopTarg,
+ #						   cprDe_highP_stopTarg,
+ #						   apr_highP_stopTarg,
+ #						   cprDe_lowP_stopTarg, 
+ #						   tprDe_lowP_stopTarg, 
+ #						   apr_lowP_stopTarg, 
+ #						   tprHelixDe_ipa, tprHelixDe_ipa_phiScaled ] 
 
 physics.analyzers.readTriggerInfo.triggerPathsList : [ tprDe_highP_stopTarg,
 						       cprDe_highP_stopTarg,
