@@ -80,3 +80,4 @@ Offline::BFieldGeom
 
 install_headers()
 install_source()
+install_fhicl(SUBDIRS fcl)
